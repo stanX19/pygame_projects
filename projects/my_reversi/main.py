@@ -1,7 +1,8 @@
 import random
 import sys
 from collections import deque
-from typing import Union
+from typing import Union, Callable
+import math
 import pygame
 
 # Initialize Pygame
@@ -35,6 +36,7 @@ class Unit:
         self.hp: float = hp
         self.dmg: float = dmg
         self.move_cd: float = move_cd
+        self.atk_cd: float = move_cd
         self.search_radius: float = search_radius
         self._move_timer: float = self.move_cd * 2
         self._atk_timer: float = self.move_cd * 2
@@ -57,7 +59,7 @@ class Unit:
 
     @atk_timer.setter
     def atk_timer(self, val):
-        if self.move_cd == float('inf'):
+        if self.atk_cd == float('inf'):
             return
         self._atk_timer = max(0, val)
 
@@ -67,7 +69,7 @@ class Unit:
 
     def upgrade(self):
         self.hp += 1
-        # self.move_cd *= 0.9
+        # self.dmg += 1
 
     def __str__(self):
         return f"{self.__class__}[hp={self.hp}, dmg={self.dmg}\
@@ -138,15 +140,16 @@ class ReversiGame:
         if 0 <= row < GRID_SIZE and 0 <= col < GRID_SIZE:
             self.grid[row][col] = unit
 
-    def _bfs_assemble(self, start, unit, blocking=None):
+    def _bfs_assemble(self, start: tuple, unit: Unit, is_blocking: Union[None, Callable] = None):
         if not unit.target_cord:
             return [start]
-        queue = deque([start])
+        queue = [start]
         visited = {start}
         parent = {start: None}
 
         while queue:
-            row, col = queue.popleft()
+            queue.sort(key=lambda x: math.hypot(x[0] - unit.target_cord[0], x[1] - unit.target_cord[1]))
+            row, col = queue.pop(0)
 
             if (row, col) == unit.target_cord:
                 # Target found, extract path
@@ -160,11 +163,15 @@ class ReversiGame:
 
             for drow, dcol in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
                 nrow, ncol = row + drow, col + dcol
-                if 0 <= nrow < GRID_SIZE and 0 <= ncol < GRID_SIZE and (nrow, ncol) not in visited\
-                        and not isinstance(self.grid[nrow][ncol], blocking):
-                    visited.add((nrow, ncol))
-                    parent[(nrow, ncol)] = (row, col)
-                    queue.append((nrow, ncol))
+                if not (0 <= nrow < GRID_SIZE and 0 <= ncol < GRID_SIZE):
+                    continue
+                if (nrow, ncol) in visited:
+                    continue
+                if is_blocking and is_blocking(self.grid[nrow][ncol]):
+                    continue
+                visited.add((nrow, ncol))
+                parent[(nrow, ncol)] = (row, col)
+                queue.append((nrow, ncol))
 
         return [start]
 
@@ -197,10 +204,13 @@ class ReversiGame:
 
         return [start]
 
-    def bfs(self, start, unit):
-        ret = self._bfs_assemble(start, unit, type(unit))
+    def bfs(self, start: tuple, unit: Unit):
+        ret = self._bfs_assemble(start, unit, lambda u: isinstance(u, type(unit))
+                                                        and u.target_cord != unit.target_cord
+                                                        and u.move_timer <= unit.move_timer
+                                                        and u.hp > 0)
         if len(ret) == 1:
-            ret = self._bfs_assemble(start, unit, ())
+            ret = self._bfs_assemble(start, unit, None)
         if len(ret) == 1:
             ret = self._bfs_enemy(start, unit)
         return ret
@@ -270,10 +280,10 @@ class ReversiGame:
             return
         if u2.atk_timer <= 0:
             u1.hp -= u2.dmg
-            u2.atk_timer += u2.move_cd
+            u2.atk_timer += u2.atk_cd
         if u1.atk_timer <= 0:
             u2.hp -= u1.dmg
-            u1.atk_timer += u1.move_cd
+            u1.atk_timer += u1.atk_cd
 
         balance_dict = {
             White: -1,
@@ -379,7 +389,7 @@ class ReversiGame:
             y, x = loc[1] + dy, loc[0] + dx
             if not (0 <= x < GRID_SIZE and 0 <= y < GRID_SIZE):
                 continue
-            while type(self.grid[y][x]) is Black and self.black_energy >= UPGRADE_UNIT_COST and random.random() < 0.5:
+            while type(self.grid[y][x]) is Black and self.black_energy >= UPGRADE_UNIT_COST and random.random() < 0.1:
                 self.grid[y][x].upgrade()
                 self.black_energy -= UPGRADE_UNIT_COST
             if not self.grid[y][x] and self.black_energy >= BASIC_UNIT_COST:
