@@ -21,7 +21,7 @@ LINE_MARGIN = LINE_WIDTH // 2  # Margin for line detection
 ENERGY_RECOVERY_RATE = 10  # Energy recovery per second
 MAX_ENERGY = 160  # Maximum energy
 BASIC_UNIT_COST = 10  # Energy cost to spawn a unit
-UPGRADE_UNIT_COST = 10  # Energy cost to upgrade a unit
+UPGRADE_UNIT_COST = 5  # Energy cost to upgrade a unit
 
 unit_nu_font = pygame.font.SysFont("consolas", CELL_SIZE // 2, bold=True, italic=False)
 unit_nu_font_small = pygame.font.SysFont("consolas", CELL_SIZE // 4, bold=True, italic=False)
@@ -34,15 +34,15 @@ class Unit:
         self.contrast_color: tuple = (255 - color[0], 255 - color[1], 255 - color[2])
         self.hp: float = hp
         self.dmg: float = dmg
-        self.move_cd: float = move_cd * 2
+        self.move_cd: float = move_cd
         self.search_radius: float = search_radius
-        self._move_timer: float = move_cd * 4
-        self._atk_timer: float = move_cd * 4
+        self._move_timer: float = self.move_cd * 2
+        self._atk_timer: float = self.move_cd * 2
         self.selected: bool = False
         self.target_cord: Union[None, tuple[int, int]] = None
 
     @property
-    def move_timer(self):
+    def move_timer(self) -> float:
         return self._move_timer
 
     @move_timer.setter
@@ -67,7 +67,7 @@ class Unit:
 
     def upgrade(self):
         self.hp += 1
-        self.move_cd *= 0.9
+        # self.move_cd *= 0.9
 
     def __str__(self):
         return f"{self.__class__}[hp={self.hp}, dmg={self.dmg}\
@@ -138,7 +138,37 @@ class ReversiGame:
         if 0 <= row < GRID_SIZE and 0 <= col < GRID_SIZE:
             self.grid[row][col] = unit
 
-    def bfs(self, start, unit) -> tuple[int, int]:
+    def _bfs_assemble(self, start, unit, blocking=None):
+        if not unit.target_cord:
+            return [start]
+        queue = deque([start])
+        visited = {start}
+        parent = {start: None}
+
+        while queue:
+            row, col = queue.popleft()
+
+            if (row, col) == unit.target_cord:
+                # Target found, extract path
+                path = []
+                cord = (row, col)
+                while cord is not None:
+                    path.append(cord)
+                    cord = parent[cord]
+                path.reverse()
+                return path
+
+            for drow, dcol in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                nrow, ncol = row + drow, col + dcol
+                if 0 <= nrow < GRID_SIZE and 0 <= ncol < GRID_SIZE and (nrow, ncol) not in visited\
+                        and not isinstance(self.grid[nrow][ncol], blocking):
+                    visited.add((nrow, ncol))
+                    parent[(nrow, ncol)] = (row, col)
+                    queue.append((nrow, ncol))
+
+        return [start]
+
+    def _bfs_enemy(self, start, unit) -> list[tuple[int, int]]:
         queue = deque([start])
         visited = {start}
         parent = {start: None}
@@ -154,7 +184,7 @@ class ReversiGame:
                     path.append(cord)
                     cord = parent[cord]
                 path.reverse()
-                return path[1]
+                return path
 
             for drow, dcol in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
                 nrow, ncol = row + drow, col + dcol
@@ -165,7 +195,15 @@ class ReversiGame:
                     parent[(nrow, ncol)] = (row, col)
                     queue.append((nrow, ncol))
 
-        return start
+        return [start]
+
+    def bfs(self, start, unit):
+        ret = self._bfs_assemble(start, unit, type(unit))
+        if len(ret) == 1:
+            ret = self._bfs_assemble(start, unit, ())
+        if len(ret) == 1:
+            ret = self._bfs_enemy(start, unit)
+        return ret
 
     def norm_target_cord(self, target_row, target_col, row, col) -> tuple[int, int]:
         target_col -= col
@@ -201,9 +239,13 @@ class ReversiGame:
                     continue
                 if unit.hp <= 0:
                     continue
-                if unit.move_timer > 0 or unit.move_timer is None:
+                if unit.move_timer > 0:
                     continue
-                target_row, target_col = self.bfs((row, col), unit)
+                try:
+                    target_row, target_col = self.bfs((row, col), unit)[1]
+                except IndexError:
+                    unit.target_cord = None
+                    continue
                 if target_row == row and target_col == col:
                     continue
                 target_row, target_col = self.norm_target_cord(target_row, target_col, row, col)
@@ -337,7 +379,7 @@ class ReversiGame:
             y, x = loc[1] + dy, loc[0] + dx
             if not (0 <= x < GRID_SIZE and 0 <= y < GRID_SIZE):
                 continue
-            if type(self.grid[y][x]) is Black and self.black_energy >= UPGRADE_UNIT_COST:
+            while type(self.grid[y][x]) is Black and self.black_energy >= UPGRADE_UNIT_COST and random.random() < 0.5:
                 self.grid[y][x].upgrade()
                 self.black_energy -= UPGRADE_UNIT_COST
             if not self.grid[y][x] and self.black_energy >= BASIC_UNIT_COST:
@@ -349,17 +391,34 @@ class ReversiGame:
         self.energy = min(MAX_ENERGY, self.energy + ENERGY_RECOVERY_RATE * delta_time)
         self.black_energy = min(MAX_ENERGY, self.black_energy + ENERGY_RECOVERY_RATE * delta_time)
 
+    def iter_grid(self):
+        for row in self.grid:
+            for unit in row:
+                yield unit
+
     def handle_mouse_event(self, event):
         pos = pygame.mouse.get_pos()
         y, x = self.get_grid_position(pos)
         if y == -1 or x == -1:
             return
-        if isinstance(self.grid[y][x], White) and event.button == 3 and self.energy >= UPGRADE_UNIT_COST:
-            self.energy -= UPGRADE_UNIT_COST
-            self.grid[y][x].upgrade()
+        selected_units = [i for i in self.iter_grid() if isinstance(i, White) and i.selected]
+        if isinstance(self.grid[y][x], White) and event.button == 3:
+            if self.grid[y][x].selected:
+                for u in selected_units:
+                    if not self.energy >= UPGRADE_UNIT_COST:
+                        break
+                    self.energy -= UPGRADE_UNIT_COST
+                    u.upgrade()
+            elif self.energy >= UPGRADE_UNIT_COST:
+                self.energy -= UPGRADE_UNIT_COST
+                self.grid[y][x].upgrade()
+        elif event.button == 3 and not isinstance(self.grid[y][x], White) and selected_units:
+            for u in selected_units:
+                u.target_cord = (y, x)
         elif event.button == 1 and self.grid[y][x] is None and self.energy >= BASIC_UNIT_COST:
             self.energy -= BASIC_UNIT_COST
-            self.place_unit(y, x, White(1, 1, 1, 2))
+            new = White(1, 1, 1, 2)
+            self.place_unit(y, x, new)
         elif event.button == 1 and isinstance(self.grid[y][x], White):
             self.grid[y][x].selected = not self.grid[y][x].selected
 
@@ -406,7 +465,7 @@ class ReversiGame:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     self.quit = True
-                else:
+                if event.type == pygame.MOUSEBUTTONDOWN:
                     self.running = False
         if self.quit:
             return -1
