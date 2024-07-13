@@ -18,10 +18,10 @@ LINE_WIDTH = 2
 LINE_COLOR = (0, 0, 0)
 BACKGROUND_COLOR = (0, 128, 0)  # Green background
 LINE_MARGIN = LINE_WIDTH // 2  # Margin for line detection
-ENERGY_RECOVERY_RATE = 5  # Energy recovery per second
-MAX_ENERGY = 100  # Maximum energy
+ENERGY_RECOVERY_RATE = 10  # Energy recovery per second
+MAX_ENERGY = 160  # Maximum energy
 BASIC_UNIT_COST = 10  # Energy cost to spawn a unit
-UPGRADE_UNIT_COST = 5  # Energy cost to upgrade a unit
+UPGRADE_UNIT_COST = 10  # Energy cost to upgrade a unit
 
 unit_nu_font = pygame.font.SysFont("consolas", CELL_SIZE // 2, bold=True, italic=False)
 unit_nu_font_small = pygame.font.SysFont("consolas", CELL_SIZE // 4, bold=True, italic=False)
@@ -34,10 +34,12 @@ class Unit:
         self.contrast_color: tuple = (255 - color[0], 255 - color[1], 255 - color[2])
         self.hp: float = hp
         self.dmg: float = dmg
-        self.move_cd: float = move_cd
+        self.move_cd: float = move_cd * 2
         self.search_radius: float = search_radius
-        self._move_timer: float = move_cd
-        self._atk_timer: float = move_cd
+        self._move_timer: float = move_cd * 4
+        self._atk_timer: float = move_cd * 4
+        self.selected: bool = False
+        self.target_cord: Union[None, tuple[int, int]] = None
 
     @property
     def move_timer(self):
@@ -63,6 +65,10 @@ class Unit:
         self.atk_timer -= delta_time
         self.move_timer -= delta_time
 
+    def upgrade(self):
+        self.hp += 1
+        self.move_cd *= 0.9
+
     def __str__(self):
         return f"{self.__class__}[hp={self.hp}, dmg={self.dmg}\
 , mv_cd={self.move_timer:.2f}, atk_cd={self.atk_timer:.2f}]"
@@ -86,14 +92,21 @@ class ReversiGame:
         self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
         pygame.display.set_caption("Reversi Board")
         self.grid: list[list[Union[None, Unit]]] = [[None for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
-        self.running = True
+        self.running: bool = True
+        self.quit: bool = False
         self.clock = pygame.time.Clock()  # For delta time
-        self.balance = 0.0
-        self.energy = 0
-        self.black_energy = 0
+        self.balance: float = 0.0
+        self.energy: float = 0
+        self.black_energy: float = 0
         self.init_game()
 
     def init_game(self):
+        self.grid: list[list[Union[None, Unit]]] = [[None for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
+        self.running: bool = True
+        self.quit: bool = False
+        self.balance = 0.0
+        self.energy = 0
+        self.black_energy = 0
         # headquarters, 5 health, can fight back (1), delay: 1, range=melee
         self.grid[GRID_SIZE - 1][0] = White(10, 1, 1, 1)
         self.grid[GRID_SIZE - 3][0] = White(5, 10, 3, 1)
@@ -267,7 +280,7 @@ class ReversiGame:
 
                 hp_number = unit_nu_font.render(str(unit.hp), True, unit.contrast_color)
                 hp_rect = hp_number.get_rect(center=center)
-                dmg_number = unit_nu_font_small.render(str(unit.dmg), True, (125, 125, 125))
+                dmg_number = unit_nu_font_small.render(str(unit.dmg), True, (128, 128, 128))
                 dmg_rect = dmg_number.get_rect(center=center)
                 dmg_rect.left = hp_rect.right
                 dmg_rect.y += CELL_SIZE // 8
@@ -275,6 +288,9 @@ class ReversiGame:
                 # dmg first
                 self.screen.blit(dmg_number, dmg_rect)
                 self.screen.blit(hp_number, hp_rect)
+
+                if unit.selected:
+                    pygame.draw.circle(self.screen, (0, 255, 255), center, radius, width=2)
 
     def draw_info(self):
         info_text = info_font.render(f"""Energy left: {self.energy:<6.2f}""", True, (255, 255, 255))
@@ -310,20 +326,23 @@ class ReversiGame:
         return None
 
     def spawn_black_unit(self, delta_time):
-        if self.black_energy < BASIC_UNIT_COST:
-            return
         if random.random() > 0.01:
             return
-        self.black_energy -= BASIC_UNIT_COST
         loc = self.find_max_hp_target(Black)
         if loc is None:
             return
         if self.grid[loc[1]][loc[0]].hp <= 1:
             return
-        for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+        for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, 1), (1, -1), (-1, 1)]:
             y, x = loc[1] + dy, loc[0] + dx
-            if 0 <= x < GRID_SIZE and 0 <= y < GRID_SIZE and not self.grid[y][x]:
+            if not (0 <= x < GRID_SIZE and 0 <= y < GRID_SIZE):
+                continue
+            if type(self.grid[y][x]) is Black and self.black_energy >= UPGRADE_UNIT_COST:
+                self.grid[y][x].upgrade()
+                self.black_energy -= UPGRADE_UNIT_COST
+            if not self.grid[y][x] and self.black_energy >= BASIC_UNIT_COST:
                 self.grid[y][x] = Black(1, 1, 1, GRID_SIZE ** 2)
+                self.black_energy -= BASIC_UNIT_COST
                 break
 
     def recover_energy(self, delta_time):
@@ -337,11 +356,12 @@ class ReversiGame:
             return
         if isinstance(self.grid[y][x], White) and event.button == 3 and self.energy >= UPGRADE_UNIT_COST:
             self.energy -= UPGRADE_UNIT_COST
-            self.grid[y][x].hp += 1
-            self.grid[y][x].dmg += 1
+            self.grid[y][x].upgrade()
         elif event.button == 1 and self.grid[y][x] is None and self.energy >= BASIC_UNIT_COST:
             self.energy -= BASIC_UNIT_COST
-            self.place_unit(y, x, White(1, 1, 1, 4))
+            self.place_unit(y, x, White(1, 1, 1, 2))
+        elif event.button == 1 and isinstance(self.grid[y][x], White):
+            self.grid[y][x].selected = not self.grid[y][x].selected
 
     def check_end_game(self):
         count = {
@@ -360,12 +380,13 @@ class ReversiGame:
             self.running = False
 
     def run(self):
+        self.init_game()
         self.running = True
-        while self.running:
+        while self.running and not self.quit:
             delta_time = self.clock.tick(60) / 1000.0  # Get delta time
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
-                    self.running = False
+                    self.quit = True
                 elif event.type == pygame.MOUSEBUTTONDOWN:
                     self.handle_mouse_event(event)
 
@@ -381,15 +402,22 @@ class ReversiGame:
             pygame.display.flip()
 
         self.running = True
-        while self.running:
+        while self.running and not self.quit:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
+                    self.quit = True
+                else:
                     self.running = False
+        if self.quit:
+            return -1
+        return 0
 
-        pygame.quit()
-        sys.exit()
+
+def main():
+    game = ReversiGame()
+    while game.run() == 0:
+        pass
 
 
-# Create and run the game
-game = ReversiGame()
-game.run()
+if __name__ == '__main__':
+    main()
