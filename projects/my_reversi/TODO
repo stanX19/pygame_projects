@@ -9,6 +9,10 @@ buttons ui
 - click unselects everything else
 
 remake mechanics
+- eating
+	- killing requires you to move
+	- if you cant move you cant reduce target's hp to zero
+
 - unit class
 	- 2 hp calvary, fast
 	- 3 hp defender, high atk very slow
