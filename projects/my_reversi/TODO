@@ -8,9 +8,6 @@ buttons ui
 - ctrl click multi select
 - click unselects everything else
 
-animations, prev pos, curr pos
-- progress = move_timer / move_cd * 2
-
 remake mechanics
 - unit class
 	- 2 hp calvary, fast
