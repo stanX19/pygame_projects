@@ -1,0 +1,19 @@
+energy bar
+- gradient in middle
+- pieces use rect
+
+buttons ui
+- cancel target_loc button
+- shift click selects all in between
+- ctrl click multi select
+- click unselects everything else
+
+animations, prev pos, curr pos
+- progress = move_timer / move_cd * 2
+
+remake mechanics
+- unit class
+	- 2 hp calvary, fast
+	- 3 hp defender, high atk very slow
+	- 5 hp = power house (energy regen++), cannot move, spawn point
+	- 10 hp = radar, deploy everywhere
