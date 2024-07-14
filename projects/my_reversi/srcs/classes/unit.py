@@ -55,6 +55,8 @@ class Unit:
 
     def upgrade(self):
         self.hp += 1
+        self.atk_cd *= 0.9
+        self.move_cd *= 0.9
         # self.dmg += 1
 
     def __str__(self):

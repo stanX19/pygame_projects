@@ -7,9 +7,9 @@ from classes.unit import Unit, Black, White
 pygame.init()
 
 # Constants
-CELL_SIZE = 60
 GRID_SIZE = 12
-BOARD_SIZE = CELL_SIZE * GRID_SIZE
+BOARD_SIZE = 720
+CELL_SIZE = BOARD_SIZE // GRID_SIZE
 SIDE_SPACE = 300  # Space on the left and right of the board
 SCREEN_WIDTH = BOARD_SIZE + SIDE_SPACE * 2
 SCREEN_HEIGHT = BOARD_SIZE
@@ -17,10 +17,10 @@ LINE_WIDTH = 2
 LINE_COLOR = (0, 0, 0)
 BACKGROUND_COLOR = (0, 128, 0)  # Green background
 LINE_MARGIN = LINE_WIDTH // 2  # Margin for line detection
-ENERGY_RECOVERY_RATE = 10  # Energy recovery per second
-MAX_ENERGY = 160  # Maximum energy
+ENERGY_RECOVERY_RATE = 5  # Energy recovery per second
+MAX_ENERGY = GRID_SIZE * 4 * 10  # Maximum energy
 BASIC_UNIT_COST = 10  # Energy cost to spawn a unit
-UPGRADE_UNIT_COST = 5  # Energy cost to upgrade a unit
+UPGRADE_UNIT_COST = 10  # Energy cost to upgrade a unit
 
 unit_nu_font = pygame.font.SysFont("consolas", CELL_SIZE // 2, bold=True, italic=False)
 unit_nu_font_small = pygame.font.SysFont("consolas", CELL_SIZE // 4, bold=True, italic=False)
@@ -108,12 +108,12 @@ class ReversiGame:
                     pygame.draw.circle(self.screen, (0, 255, 255), center, radius, width=2)
 
     def draw_info(self):
-        info_text = info_font.render(f"""Energy left: {self.energy:<6.2f}""", True, (255, 255, 255))
+        info_text = info_font.render(f"""Energy left: {self.energy:<6.0f}""", True, (255, 255, 255))
         info_rect = info_text.get_rect()
         info_rect.left = 50
         info_rect.bottom = BOARD_SIZE - 100
         self.screen.blit(info_text, info_rect)
-        info_text = info_font.render(f"""Energy left: {self.black_energy:<.2f}""", True, (255, 255, 255))
+        info_text = info_font.render(f"""Energy left: {self.black_energy:<.0f}""", True, (255, 255, 255))
         info_rect = info_text.get_rect()
         info_rect.left = SIDE_SPACE + BOARD_SIZE + 50
         info_rect.top = 100
@@ -125,7 +125,7 @@ class ReversiGame:
         self.screen.blit(info_text, info_rect)
 
     def spawn_black_unit(self, delta_time):
-        if random.random() > 0.01:
+        if random.random() > 0.02:
             return
         loc = self.grid.find_max_hp_target(Black)
         if loc is None:
@@ -140,7 +140,7 @@ class ReversiGame:
                 self.grid[y][x].upgrade()
                 self.black_energy -= UPGRADE_UNIT_COST
             if not self.grid[y][x] and self.black_energy >= BASIC_UNIT_COST:
-                self.grid[y][x] = Black(1, 1, 1, GRID_SIZE ** 2)
+                self.grid[y][x] = Black(1, 1, 1, GRID_SIZE * 2)
                 self.black_energy -= BASIC_UNIT_COST
                 break
 
