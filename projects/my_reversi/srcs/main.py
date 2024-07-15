@@ -1,3 +1,4 @@
+import math
 import random
 import pygame
 from classes.grid_manager import GridManager
@@ -17,7 +18,7 @@ LINE_WIDTH = 2
 LINE_COLOR = (0, 0, 0)
 BACKGROUND_COLOR = (0, 128, 0)  # Green background
 LINE_MARGIN = LINE_WIDTH // 2  # Margin for line detection
-ENERGY_RECOVERY_RATE = 5  # Energy recovery per second
+ENERGY_RECOVERY_RATE = 1  # Energy recovery per second per unit
 MAX_ENERGY = GRID_SIZE * 4 * 10  # Maximum energy
 BASIC_UNIT_COST = 10  # Energy cost to spawn a unit
 UPGRADE_UNIT_COST = 10  # Energy cost to upgrade a unit
@@ -35,23 +36,32 @@ class ReversiGame:
         self.running: bool = True
         self.quit: bool = False
         self.clock = pygame.time.Clock()  # For delta time
-        self.energy: float = 0
+        self.white_energy: float = 0
         self.black_energy: float = 0
         self.init_game()
 
     def init_game(self):
         self.running: bool = True
         self.quit: bool = False
-        self.energy = 0
-        self.black_energy = 0
+        self.white_energy = BASIC_UNIT_COST * 15
+        self.black_energy = BASIC_UNIT_COST * 15
         # headquarters, 5 health, can fight back (1), delay: 1, range=melee
         self.grid.clear()
-        self.grid[-1][0] = White(10, 1, 1, 1)
-        self.grid[-3][0] = White(5, 10, 3, 1)
-        self.grid[-1][2] = White(5, 10, 3, 1)
-        self.grid[0][-1] = Black(10, 1, 1, 1)
-        self.grid[0][-3] = Black(5, 10, 3, 1)
-        self.grid[2][-1] = Black(5, 10, 3, 1)
+        # for i in range(GRID_SIZE):
+        #     self.grid[i][0] = White(1, 1, 1, 100)
+        #     self.grid[i][1] = White(1, 1, 1, 100)
+        #     self.grid[i][-1] = Black(1, 1, 1, 100)
+        #     self.grid[i][-2] = Black(1, 1, 1, 100)
+        self.grid[-1][0] = White(5)
+        self.grid[-3][0] = White(3)
+        self.grid[-1][2] = White(3)
+        # self.grid[-3][1] = White(4)
+        # self.grid[-2][2] = White(4)
+        self.grid[0][-1] = Black(5)
+        self.grid[0][-3] = Black(3)
+        self.grid[2][-1] = Black(3)
+        # self.grid[1][-3] = Black(4)
+        # self.grid[2][-2] = Black(4)
 
     def draw_grid(self):
         for x in range(SIDE_SPACE, BOARD_SIZE + SIDE_SPACE + 1, CELL_SIZE):
@@ -73,11 +83,11 @@ class ReversiGame:
         return row, col
 
     def place_basic_unit(self, y, x):
-        if self.energy < BASIC_UNIT_COST:
+        if self.white_energy < BASIC_UNIT_COST:
             return
-        self.energy -= BASIC_UNIT_COST
+        self.white_energy -= BASIC_UNIT_COST
         if 0 <= y < GRID_SIZE and 0 <= x < GRID_SIZE:
-            self.grid[y][x] = White()
+            self.grid[y][x] = White(search_radius=GRID_SIZE)
 
     def draw_units(self):
         for y in range(GRID_SIZE):
@@ -90,12 +100,13 @@ class ReversiGame:
                 _x = k * x + (1 - k) * unit.prev_x
                 _y = k * y + (1 - k) * unit.prev_y
                 center = (_x * CELL_SIZE + CELL_SIZE // 2 + SIDE_SPACE, _y * CELL_SIZE + CELL_SIZE // 2)
+                center = (math.ceil(center[0]), math.ceil(center[1]))
                 radius = CELL_SIZE // 2 - LINE_MARGIN
                 pygame.draw.circle(self.screen, unit.color, center, radius)
 
-                hp_number = unit_nu_font.render(str(unit.hp), True, unit.contrast_color)
+                hp_number = unit_nu_font.render(str(math.ceil(unit.hp)), True, unit.contrast_color)
                 hp_rect = hp_number.get_rect(center=center)
-                dmg_number = unit_nu_font_small.render(str(unit.dmg), True, (128, 128, 128))
+                dmg_number = unit_nu_font_small.render(str(math.ceil(unit.dmg)), True, (128, 128, 128))
                 dmg_rect = dmg_number.get_rect(center=center)
                 dmg_rect.left = hp_rect.right
                 dmg_rect.y += CELL_SIZE // 8
@@ -108,7 +119,7 @@ class ReversiGame:
                     pygame.draw.circle(self.screen, (0, 255, 255), center, radius, width=2)
 
     def draw_info(self):
-        info_text = info_font.render(f"""Energy left: {self.energy:<6.0f}""", True, (255, 255, 255))
+        info_text = info_font.render(f"""Energy left: {self.white_energy:<6.0f}""", True, (255, 255, 255))
         info_rect = info_text.get_rect()
         info_rect.left = 50
         info_rect.bottom = BOARD_SIZE - 100
@@ -125,7 +136,7 @@ class ReversiGame:
         self.screen.blit(info_text, info_rect)
 
     def spawn_black_unit(self, delta_time):
-        if random.random() > 0.02:
+        if random.random() > 0.1 * (self.black_energy / MAX_ENERGY):
             return
         loc = self.grid.find_max_hp_target(Black)
         if loc is None:
@@ -140,13 +151,17 @@ class ReversiGame:
                 self.grid[y][x].upgrade()
                 self.black_energy -= UPGRADE_UNIT_COST
             if not self.grid[y][x] and self.black_energy >= BASIC_UNIT_COST:
-                self.grid[y][x] = Black(1, 1, 1, GRID_SIZE * 2)
+                self.grid[y][x] = Black(1, 1, 1, GRID_SIZE)
                 self.black_energy -= BASIC_UNIT_COST
                 break
 
     def recover_energy(self, delta_time):
-        self.energy = min(MAX_ENERGY, self.energy + ENERGY_RECOVERY_RATE * delta_time)
-        self.black_energy = min(MAX_ENERGY, self.black_energy + ENERGY_RECOVERY_RATE * delta_time)
+        white_count = self.grid.count_if(lambda u: isinstance(u, White) and u.hp >= 5)
+        black_count = self.grid.count_if(lambda u: isinstance(u, Black) and u.hp >= 5)
+        white_rate = ENERGY_RECOVERY_RATE * white_count
+        black_rate = ENERGY_RECOVERY_RATE * black_count
+        self.white_energy = min(MAX_ENERGY, self.white_energy + white_rate * delta_time)
+        self.black_energy = min(MAX_ENERGY, self.black_energy + black_rate * delta_time)
 
     def handle_mouse_event(self, event):
         pos = pygame.mouse.get_pos()
@@ -156,12 +171,12 @@ class ReversiGame:
         if isinstance(self.grid[y][x], White) and event.button == 3:
             if self.grid[y][x].selected:
                 for u in self.grid.selected_units:
-                    if not self.energy >= UPGRADE_UNIT_COST:
+                    if not self.white_energy >= UPGRADE_UNIT_COST:
                         break
-                    self.energy -= UPGRADE_UNIT_COST
+                    self.white_energy -= UPGRADE_UNIT_COST
                     u.upgrade()
-            elif self.energy >= UPGRADE_UNIT_COST:
-                self.energy -= UPGRADE_UNIT_COST
+            elif self.white_energy >= UPGRADE_UNIT_COST:
+                self.white_energy -= UPGRADE_UNIT_COST
                 self.grid[y][x].upgrade()
         elif event.button == 3 and not isinstance(self.grid[y][x], White) and self.grid.selected_units:
             for u in self.grid.selected_units:

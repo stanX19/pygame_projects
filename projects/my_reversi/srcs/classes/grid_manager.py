@@ -49,6 +49,9 @@ class GridManager:
                     continue
                 yield unit
 
+    def count_if(self, func):
+        return sum(1 for u in self.iter_unit() if func(u))
+
     def iter_cords(self):
         for y, row in enumerate(self.grid):
             for x, unit in enumerate(row):
@@ -58,79 +61,65 @@ class GridManager:
     def selected_units(self):
         return [i for i in self.iter_unit() if isinstance(i, White) and i.selected]
 
-    def _bfs_assemble(self, start: tuple, unit: Unit, is_blocking: Union[None, Callable] = None):
-        if not unit.target_cord:
+    def _extract_path(self, parent: dict, y: int, x: int):
+        path = []
+        cord = (y, x)
+        while cord is not None:
+            path.append(cord)
+            cord = parent[cord]
+        path.reverse()
+        return path
+
+    def _bfs(self, start, unit, is_blocking=None, find_enemy=True) -> list[tuple[int, int]]:
+        if not find_enemy and unit.target_cord is None:
             return [start]
         queue = [start]
         visited = {start}
         parent = {start: None}
 
         while queue:
-            queue.sort(key=lambda x: math.hypot(x[0] - unit.target_cord[0], x[1] - unit.target_cord[1]))
-            row, col = queue.pop(0)
+            if not find_enemy:
+                queue.sort(key=lambda c: math.hypot(c[0] - unit.target_cord[0], c[1] - unit.target_cord[1]))
+            y, x = queue.pop(0)
 
-            if (row, col) == unit.target_cord:
-                # Target found, extract path
-                path = []
-                cord = (row, col)
-                while cord is not None:
-                    path.append(cord)
-                    cord = parent[cord]
-                path.reverse()
-                return path
+            if find_enemy and (y, x) != start and self.grid[y][x] and type(self.grid[y][x]) is not type(unit):
+                return self._extract_path(parent, y, x)
+            elif not find_enemy and (y, x) == unit.target_cord:
+                return self._extract_path(parent, y, x)
 
-            for drow, dcol in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-                nrow, ncol = row + drow, col + dcol
-                if not (0 <= nrow < self.grid_size and 0 <= ncol < self.grid_size):
+            for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                ny, nx = y + dy, x + dx
+                if not (0 <= ny < self.grid_size and 0 <= nx < self.grid_size):
                     continue
-                if (nrow, ncol) in visited:
+                if (ny, nx) in visited:
                     continue
-                if is_blocking and is_blocking(self.grid[nrow][ncol]):
+                if find_enemy and abs(ny - start[0]) + abs(nx - start[1]) > unit.search_radius:
                     continue
-                visited.add((nrow, ncol))
-                parent[(nrow, ncol)] = (row, col)
-                queue.append((nrow, ncol))
-
-        return [start]
-
-    def _bfs_enemy(self, start, unit) -> list[tuple[int, int]]:
-        queue = [start]
-        visited = {start}
-        parent = {start: None}
-
-        while queue:
-            row, col = queue.pop(0)
-
-            if (row, col) != start and self.grid[row][col] and type(self.grid[row][col]) is not type(unit):
-                # Target found, extract path
-                path = []
-                cord = (row, col)
-                while cord is not None:
-                    path.append(cord)
-                    cord = parent[cord]
-                path.reverse()
-                return path
-
-            for drow, dcol in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-                nrow, ncol = row + drow, col + dcol
-                if 0 <= nrow < self.grid_size and 0 <= ncol < self.grid_size and (nrow, ncol) not in visited \
-                        and abs(nrow - start[0]) + abs(ncol - start[1]) <= unit.search_radius \
-                        and type(self.grid[nrow][ncol]) is not type(unit):
-                    visited.add((nrow, ncol))
-                    parent[(nrow, ncol)] = (row, col)
-                    queue.append((nrow, ncol))
+                if is_blocking and is_blocking(self.grid[ny][nx]):
+                    continue
+                visited.add((ny, nx))
+                parent[(ny, nx)] = (y, x)
+                queue.append((ny, nx))
 
         return [start]
 
     def bfs(self, start: tuple, unit: Unit):
-        ret = self._bfs_assemble(start, unit, lambda u: isinstance(u, type(unit))
-                                                        and (u.target_cord != unit.target_cord or
-                                                             (u.target_cord == unit.target_cord and
-                                                              (u.hp <= 0 or unit.move_timer < u.move_timer))))
+        def blocking(u: Unit):
+            if not isinstance(u, type(unit)):
+                return False
+            if u.target_cord != unit.target_cord:
+                return True
+            # have same target but
+            if u.hp <= 0 or unit.move_timer < u.move_timer:
+                return True
+
+        ret = self._bfs(start, unit, is_blocking=blocking, find_enemy=False)
         if len(ret) == 1:
-            ret = self._bfs_assemble(start, unit, None)
+            ret = self._bfs(start, unit, None, find_enemy=False)
         if len(ret) == 1:
-            ret = self._bfs_enemy(start, unit)
+            ret = self._bfs(start, unit, lambda u: type(u) is type(unit))
+        if len(ret) == 1:
+            ret = self._bfs(start, unit)
         return ret
 
     def move_units(self, delta_time):
@@ -146,8 +135,6 @@ class GridManager:
             for x in range(self.grid_size):
                 unit = self.grid[y][x]
                 if not isinstance(unit, Unit):
-                    continue
-                if unit.hp <= 0:
                     continue
                 if isinstance(unit.target_cord, tuple) and x == unit.target_cord[1] and y == unit.target_cord[0]:
                     unit.target_cord = None
@@ -175,12 +162,8 @@ class GridManager:
             return
         if u1.hp <= 0 or u2.hp <= 0:
             return
-        if u2.atk_timer <= 0:
-            u1.hp -= u2.dmg
-            u2.atk_timer += u2.atk_cd
-        if u1.atk_timer <= 0:
-            u2.hp -= u1.dmg
-            u1.atk_timer += u1.atk_cd
+        u1.attack(u2)
+        u2.attack(u1)
 
         balance_dict = {
             White: -1,
@@ -204,15 +187,11 @@ class GridManager:
     def can_eat(self, x1: int, y1: int, x2: int, y2: int):
         u1 = self.grid[y1][x1]
         u2 = self.grid[y2][x2]
-        if u1.move_timer > 0:
+        if not isinstance(u1, Unit) or u1.move_timer > 0 or u1.hp <= 0:
             return False
-        if not isinstance(u1, Unit):
-            return False
-        if not isinstance(u2, Unit):
-            return True
         if type(u1) == type(u2):
             return False
-        if u2.hp <= 0:
+        if isinstance(u2, type(None)):
             return True
         if u1.move_timer <= 0 and u2.hp <= 0:
             return True
