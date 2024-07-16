@@ -1,4 +1,17 @@
+import math
 from typing import Union
+
+
+class UnitClass(str):
+    pass
+
+
+class ClassEnum:
+    BASIC = UnitClass("Basic")
+    CALVARY = UnitClass("Calvary")
+    CASTLE = UnitClass("Castle")
+    BASE = UnitClass("Base")
+    BEACON = UnitClass("Beacon")
 
 
 class Unit:
@@ -21,9 +34,12 @@ class Unit:
         self.target_cord: Union[None, tuple[int, int]] = None
         self.next: Union[None, tuple[int, int]] = None
 
-        self.set_class()
+        self.unit_class: UnitClass = ClassEnum.BASIC
+        self.update_class()
 
     def move_to(self, grid: list[list], x: int, y: int):
+        if self.move_timer:
+            return
         self.prev_x = self.x
         self.prev_y = self.y
         self.x = x
@@ -36,25 +52,31 @@ class Unit:
         self._move_timer = self.move_cd
         self._atk_timer = self.atk_cd
 
+        # do not change to zero, when upgraded cd reset will cause recursive reset cd
+
     @property
     def move_timer(self) -> float:
+        if self.move_cd == float('inf'):
+            return self.move_cd
         return self._move_timer
 
     @move_timer.setter
     def move_timer(self, val):
         if self.move_cd == float('inf'):
             return
-        self._move_timer = max(0, val)
+        self._move_timer = max(0.0, val)
 
     @property
     def atk_timer(self):
+        if self.atk_cd == float('inf'):
+            return self.atk_cd
         return self._atk_timer
 
     @atk_timer.setter
     def atk_timer(self, val):
         if self.atk_cd == float('inf'):
             return
-        self._atk_timer = max(0, val)
+        self._atk_timer = max(0.0, val)
 
     def attack(self, u2):
         if self.atk_timer > 0:
@@ -66,23 +88,30 @@ class Unit:
         self.atk_timer -= delta_time
         self.move_timer -= delta_time
 
-    def set_class(self):
+    def update_class(self):
+        self.search_radius = 3
+        if self.hp <= 1:
+            self.unit_class = ClassEnum.BASIC
         if self.hp >= 2:
             self.dmg = 1
             self.move_cd = 0.5
             self.atk_cd = 0.5
+            self.unit_class = ClassEnum.CALVARY
         if self.hp >= 3:
             self.dmg = 5
             self.move_cd = 3
             self.atk_cd = 3
+            self.unit_class = ClassEnum.CASTLE
         if self.hp >= 5:
             self.move_cd = float('inf')
-            self.dmg = 0
+            self.atk_cd = 10 / math.sqrt(self.hp - 4)
+            self.dmg = 1
             self.search_radius = 0
+            self.unit_class = ClassEnum.BASE
 
     def upgrade(self):
         self.hp += 1
-        self.set_class()
+        self.update_class()
         self.reset_timer()
 
     def __str__(self):
@@ -91,6 +120,9 @@ class Unit:
 
     def __repr__(self):
         return self.__str__()
+
+    def __int__(self):
+        return self.hp
 
 
 class Black(Unit):

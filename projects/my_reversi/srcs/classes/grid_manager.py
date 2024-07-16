@@ -2,26 +2,26 @@ import math
 import random
 from typing import Union, Callable
 
-from .unit import Unit, Black, White
+from .unit import Unit, Black, White, ClassEnum
 
 
 class GridRow:
     def __init__(self, grid, y: int):
-        self.grid = grid
+        self.grid_manager = grid
         self.y = y
-        self.y += self.grid.grid_size * (self.y < 0)
+        self.y += self.grid_manager.grid_size * (self.y < 0)
 
     def __getitem__(self, col):
-        return self.grid.grid[self.y][col]
+        return self.grid_manager.grid[self.y][col]
 
     def __setitem__(self, x: int, value: Union[None, Unit]):
-        x += self.grid.grid_size * (x < 0)
+        x += self.grid_manager.grid_size * (x < 0)
         if isinstance(value, Unit):
             value.x = x
             value.y = self.y
             value.prev_x = x
             value.prev_y = self.y
-        self.grid.grid[self.y][x] = value
+        self.grid_manager.grid[self.y][x] = value
 
 
 class GridManager:
@@ -56,6 +56,17 @@ class GridManager:
         for y, row in enumerate(self.grid):
             for x, unit in enumerate(row):
                 yield x, y
+
+    def select_all(self, key=None):
+        for u in self.iter_unit():
+            if key and key(u):
+                u.selected = True
+
+    def unselect_all(self, key=None):
+        for u in self.selected_units:
+            if key and not key(u):
+                continue
+            u.selected = False
 
     @property
     def selected_units(self):
@@ -122,7 +133,7 @@ class GridManager:
             ret = self._bfs(start, unit)
         return ret
 
-    def move_units(self, delta_time):
+    def update_delta_time(self, delta_time):
         # update timers
         for y in range(self.grid_size):
             for x in range(self.grid_size):
@@ -130,6 +141,7 @@ class GridManager:
                 if isinstance(unit, Unit):
                     unit.update_time(delta_time)
 
+    def move_units(self):
         # resolve movement & eat
         for y in range(self.grid_size):
             for x in range(self.grid_size):
@@ -184,6 +196,9 @@ class GridManager:
                 survivor.hp = 1
             print(f"rolled dice {self.balance}")
 
+        u1.update_class()
+        u2.update_class()
+
     def can_eat(self, x1: int, y1: int, x2: int, y2: int):
         u1 = self.grid[y1][x1]
         u2 = self.grid[y2][x2]
@@ -196,18 +211,41 @@ class GridManager:
         if u1.move_timer <= 0 and u2.hp <= 0:
             return True
 
-    def find_max_hp_target(self, _class) -> Union[tuple, None]:
-        max_hp = -1
-        location = (-1, -1)
+    def spawn_one_around(self, unit: Unit):
+        if not isinstance(unit, (Black, White)):
+            return
+        for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:  # , (-1, -1), (1, 1), (1, -1), (-1, 1)]:
+            y, x = unit.y + dy, unit.x + dx
+            if not (0 <= x < self.grid_size and 0 <= y < self.grid_size):
+                continue
+            if isinstance(self.grid[y][x], Unit) and self.grid[y][x].hp > 0:
+                continue
+            self[y][x] = unit.__class__(search_radius=3)
+            return
+        for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:  # , (-1, -1), (1, 1), (1, -1), (-1, 1)]:
+            y, x = unit.y + dy, unit.x + dx
+            if not (0 <= x < self.grid_size and 0 <= y < self.grid_size):
+                continue
+            if not isinstance(self.grid[y][x], type(unit)):
+                continue
+            self.grid[y][x].upgrade()
+            return
 
-        for j, row in enumerate(self.grid):
-            for i, unit in enumerate(row):
-                if not isinstance(unit, _class):
-                    continue
-                if unit.hp > max_hp:
-                    max_hp = unit.hp
-                    location = (i, j)
+    def spawn_units(self):
+        for unit in self.iter_unit():
+            if unit.unit_class == ClassEnum.BASE and unit.atk_timer == 0:
+                self.spawn_one_around(unit)
+                unit.atk_timer = unit.atk_cd
 
-        if max_hp != -1:
-            return location
-        return None
+    def find_max_hp_target(self, _class) -> Union[Unit, None]:
+        max_hp = 0
+        ret = None
+
+        for unit in self.iter_unit():
+            if not isinstance(unit, _class):
+                continue
+            if unit.hp > max_hp:
+                max_hp = unit.hp
+                ret = unit
+
+        return ret

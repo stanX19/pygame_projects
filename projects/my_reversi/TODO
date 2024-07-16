@@ -5,8 +5,6 @@ energy bar
 buttons ui
 - cancel target_loc button
 - shift click selects all in between
-- ctrl click multi select
-- click unselects everything else
 
 remake mechanics
 - eating

@@ -2,7 +2,7 @@ import math
 import random
 import pygame
 from classes.grid_manager import GridManager
-from classes.unit import Unit, Black, White
+from classes.unit import Unit, Black, White, ClassEnum
 
 # Initialize Pygame
 pygame.init()
@@ -18,7 +18,7 @@ LINE_WIDTH = 2
 LINE_COLOR = (0, 0, 0)
 BACKGROUND_COLOR = (0, 128, 0)  # Green background
 LINE_MARGIN = LINE_WIDTH // 2  # Margin for line detection
-ENERGY_RECOVERY_RATE = 1  # Energy recovery per second per unit
+ENERGY_RECOVERY_RATE = 0.1  # Energy recovery per second per unit
 MAX_ENERGY = GRID_SIZE * 4 * 10  # Maximum energy
 BASIC_UNIT_COST = 10  # Energy cost to spawn a unit
 UPGRADE_UNIT_COST = 10  # Energy cost to upgrade a unit
@@ -71,7 +71,7 @@ class ReversiGame:
 
     def get_grid_position(self, pos):
         x, y = pos
-        if x < SIDE_SPACE or x >= BOARD_SIZE + SIDE_SPACE:
+        if x < SIDE_SPACE or x >= BOARD_SIZE + SIDE_SPACE or y < 0 or y > BOARD_SIZE:
             return -1, -1
         x -= SIDE_SPACE
         if x % CELL_SIZE < LINE_MARGIN or x % CELL_SIZE > CELL_SIZE - LINE_MARGIN:
@@ -96,7 +96,7 @@ class ReversiGame:
                 if not unit:
                     continue
                 n = min(0.05, unit.move_cd)  # animation time cannot be more than n
-                k = min(1, (unit.move_cd - unit.move_timer) / n)  # how much towards current
+                k = max(0, min(1, (unit.move_cd - unit.move_timer) / n))  # how much towards current
                 _x = k * x + (1 - k) * unit.prev_x
                 _y = k * y + (1 - k) * unit.prev_y
                 center = (_x * CELL_SIZE + CELL_SIZE // 2 + SIDE_SPACE, _y * CELL_SIZE + CELL_SIZE // 2)
@@ -135,29 +135,22 @@ class ReversiGame:
         info_rect = info_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
         self.screen.blit(info_text, info_rect)
 
-    def spawn_black_unit(self, delta_time):
-        if random.random() > 0.1 * (self.black_energy / MAX_ENERGY):
+    def black_play(self):
+        black_units = [i for i in self.grid.iter_unit() if isinstance(i, Black)]
+        units = list(sorted(black_units, key=lambda u: u.hp))
+        active = sum(1 for u in units if u.unit_class != ClassEnum.BASE)
+        inactive = len(units) - active
+        if inactive >= active:
             return
-        loc = self.grid.find_max_hp_target(Black)
-        if loc is None:
-            return
-        if self.grid[loc[1]][loc[0]].hp <= 1:
-            return
-        for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, 1), (1, -1), (-1, 1)]:
-            y, x = loc[1] + dy, loc[0] + dx
-            if not (0 <= x < GRID_SIZE and 0 <= y < GRID_SIZE):
-                continue
-            while type(self.grid[y][x]) is Black and self.black_energy >= UPGRADE_UNIT_COST and random.random() < 0.1:
-                self.grid[y][x].upgrade()
+        for unit in units:
+            if isinstance(unit, Black) and unit.hp < 5 and self.black_energy >= UPGRADE_UNIT_COST:
+                unit.upgrade()
                 self.black_energy -= UPGRADE_UNIT_COST
-            if not self.grid[y][x] and self.black_energy >= BASIC_UNIT_COST:
-                self.grid[y][x] = Black(1, 1, 1, GRID_SIZE)
-                self.black_energy -= BASIC_UNIT_COST
-                break
+                return
 
     def recover_energy(self, delta_time):
-        white_count = self.grid.count_if(lambda u: isinstance(u, White) and u.hp >= 5)
-        black_count = self.grid.count_if(lambda u: isinstance(u, Black) and u.hp >= 5)
+        white_count = 10 + sum(u.hp - 4 for u in self.grid.iter_unit() if isinstance(u, White) and u.hp >= 5)
+        black_count = 10 + sum(u.hp - 4 for u in self.grid.iter_unit() if isinstance(u, Black) and u.hp >= 5)
         white_rate = ENERGY_RECOVERY_RATE * white_count
         black_rate = ENERGY_RECOVERY_RATE * black_count
         self.white_energy = min(MAX_ENERGY, self.white_energy + white_rate * delta_time)
@@ -178,13 +171,15 @@ class ReversiGame:
             elif self.white_energy >= UPGRADE_UNIT_COST:
                 self.white_energy -= UPGRADE_UNIT_COST
                 self.grid[y][x].upgrade()
-        elif event.button == 3 and not isinstance(self.grid[y][x], White) and self.grid.selected_units:
+        elif event.button == 1 and not isinstance(self.grid[y][x], White) and self.grid.selected_units:
             for u in self.grid.selected_units:
                 u.target_cord = (y, x)
-        elif event.button == 1 and self.grid[y][x] is None:
-            self.place_basic_unit(y, x)
+        # elif event.button == 1 and self.grid[y][x] is None:
+        #     self.place_basic_unit(y, x)
         elif event.button == 1 and isinstance(self.grid[y][x], White):
-            self.grid[y][x].selected = not self.grid[y][x].selected
+            if not pygame.key.get_pressed()[pygame.K_LCTRL]:
+                self.grid.unselect_all()
+            self.grid[y][x].selected = True
 
     def check_end_game(self):
         count = {
@@ -201,20 +196,31 @@ class ReversiGame:
             self.draw_end_game(f"""YOU WON!""")
             self.running = False
 
+    def handle_events(self):
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                self.quit = True
+            elif event.type == pygame.MOUSEBUTTONUP:
+                self.handle_mouse_event(event)
+
+        keys = pygame.key.get_pressed()
+        if keys[pygame.K_LCTRL] and keys[pygame.K_a]:
+            self.grid.select_all(key=lambda u: isinstance(u, White))
+        if keys[pygame.K_ESCAPE]:
+            self.grid.unselect_all()
+
     def run(self):
         self.init_game()
         self.running = True
         while self.running and not self.quit:
             delta_time = self.clock.tick(60) / 1000.0  # Get delta time
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    self.quit = True
-                elif event.type == pygame.MOUSEBUTTONDOWN:
-                    self.handle_mouse_event(event)
+            self.handle_events()
 
-            self.grid.move_units(delta_time)
+            self.grid.update_delta_time(delta_time)
+            self.grid.spawn_units()
+            self.grid.move_units()
             self.recover_energy(delta_time)
-            self.spawn_black_unit(delta_time)
+            self.black_play()
 
             self.screen.fill(BACKGROUND_COLOR)
             self.draw_grid()
