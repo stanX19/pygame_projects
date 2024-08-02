@@ -1,3 +1,4 @@
+from __future__ import annotations
 import math
 from typing import Union
 
@@ -109,7 +110,7 @@ class Unit:
             self.search_radius = 0
             self.unit_class = ClassEnum.BASE
 
-    def upgrade(self):
+    def _upgrade(self):
         self.hp += 1
         self.update_class()
         self.reset_timer()

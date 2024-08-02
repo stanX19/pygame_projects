@@ -1,9 +1,17 @@
+from __future__ import annotations
 import math
 import random
 from typing import Union, Callable
 
 from .unit import Unit, Black, White, ClassEnum
 
+
+UPGRADE_COST = 10
+
+ENERGY_DICT: dict[Unit, float] = {
+    Black: UPGRADE_COST * 15,
+    White: UPGRADE_COST * 15,
+}
 
 class GridRow:
     def __init__(self, grid, y: int):
@@ -211,31 +219,55 @@ class GridManager:
         if u1.move_timer <= 0 and u2.hp <= 0:
             return True
 
+    def upgrade_unit_at(self, x, y, _class):
+        unit = self.grid[y][x]
+        if not isinstance(unit, Unit) and ENERGY_DICT[_class] >= 10:
+            self[y][x] = _class(search_radius=3)
+            ENERGY_DICT[_class] -= 10;
+        elif isinstance(unit, _class):
+            self.upgrade_unit(unit)
+
     def spawn_one_around(self, unit: Unit):
         if not isinstance(unit, (Black, White)):
             return
-        for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:  # , (-1, -1), (1, 1), (1, -1), (-1, 1)]:
-            y, x = unit.y + dy, unit.x + dx
+        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]  # , (-1, -1), (1, 1), (1, -1), (-1, 1)]:
+        hp_dict = {}
+        for dir in directions:
+            y, x = unit.y + dir[0], unit.x + dir[1]
             if not (0 <= x < self.grid_size and 0 <= y < self.grid_size):
+                hp_dict[dir] = float('inf')
+            elif isinstance(self.grid[y][x], type(unit)):
+                hp_dict[dir] = self.grid[y][x].hp
+            elif not isinstance(self.grid[y][x], Unit):
+                hp_dict[dir] = 0
+            else:
+                hp_dict[dir] = float('inf')
+
+        directions.sort(key=lambda dir: hp_dict[dir])
+        for dir in directions:
+            if hp_dict[dir] == float('inf'):
                 continue
+            y, x = unit.y + dir[0], unit.x + dir[1]
             if isinstance(self.grid[y][x], Unit) and self.grid[y][x].hp > 0:
                 continue
-            self[y][x] = unit.__class__(search_radius=3)
-            return
-        for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:  # , (-1, -1), (1, 1), (1, -1), (-1, 1)]:
-            y, x = unit.y + dy, unit.x + dx
-            if not (0 <= x < self.grid_size and 0 <= y < self.grid_size):
-                continue
-            if not isinstance(self.grid[y][x], type(unit)):
-                continue
-            self.grid[y][x].upgrade()
-            return
+            self.upgrade_unit_at(x, y, type(unit))
+            break
 
     def spawn_units(self):
         for unit in self.iter_unit():
             if unit.unit_class == ClassEnum.BASE and unit.atk_timer == 0:
-                self.spawn_one_around(unit)
+                ENERGY_DICT[type(unit)] += UPGRADE_COST
                 unit.atk_timer = unit.atk_cd
+
+    def upgrade_unit(self, unit: Unit):
+        if unit.unit_class == ClassEnum.BASE:
+            self.spawn_one_around(unit)
+        elif ENERGY_DICT[type(unit)] >= UPGRADE_COST:
+            ENERGY_DICT[type(unit)] -= UPGRADE_COST
+            unit._upgrade()
+        else:
+            return False
+        return True
 
     def find_max_hp_target(self, _class) -> Union[Unit, None]:
         max_hp = 0
