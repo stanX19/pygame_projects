@@ -96,7 +96,10 @@ class ReversiGame:
                 if not unit:
                     continue
                 n = min(0.05, unit.move_cd)  # animation time cannot be more than n
-                k = max(0, min(1, (unit.move_cd - unit.move_timer) / n))  # how much towards current
+                if unit.move_timer == float('inf'):
+                    k = 1
+                else:
+                    k = max(0, min(1, (unit.move_cd - unit.move_timer) / n))  # how much towards current
                 _x = k * x + (1 - k) * unit.prev_x
                 _y = k * y + (1 - k) * unit.prev_y
                 center = (_x * CELL_SIZE + CELL_SIZE // 2 + SIDE_SPACE, _y * CELL_SIZE + CELL_SIZE // 2)
@@ -136,6 +139,8 @@ class ReversiGame:
         self.screen.blit(info_text, info_rect)
 
     def black_play(self):
+        if random.random() > 0.01:
+            return
         black_units = [i for i in self.grid.iter_unit() if isinstance(i, Black)]
         units = list(sorted(black_units, key=lambda u: u.hp))
         active = sum(1 for u in units if u.unit_class != ClassEnum.BASE)
@@ -218,7 +223,7 @@ class ReversiGame:
 
             self.grid.update_delta_time(delta_time)
             self.grid.spawn_units()
-            self.grid.move_units()
+            self.grid.move_all_units()
             self.recover_energy(delta_time)
             self.black_play()
 

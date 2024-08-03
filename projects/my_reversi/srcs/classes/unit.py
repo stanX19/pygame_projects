@@ -89,8 +89,12 @@ class Unit:
         self.move_timer -= delta_time
 
     def update_class(self):
-        self.search_radius = 3
-        if self.hp <= 1:
+        if self.hp <= 0:
+            self.move_cd = 5
+        if self.hp == 1:
+            self.dmg = 1
+            self.move_cd = 1
+            self.atk_cd = 1
             self.unit_class = ClassEnum.BASIC
         if self.hp >= 2:
             self.dmg = 1
@@ -103,10 +107,9 @@ class Unit:
             self.atk_cd = 3
             self.unit_class = ClassEnum.CASTLE
         if self.hp >= 5:
+            self.dmg = 0
             self.move_cd = float('inf')
             self.atk_cd = 10 / math.sqrt(self.hp - 4)
-            self.dmg = 1
-            self.search_radius = 0
             self.unit_class = ClassEnum.BASE
 
     def upgrade(self):

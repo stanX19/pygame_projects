@@ -141,12 +141,15 @@ class GridManager:
                 if isinstance(unit, Unit):
                     unit.update_time(delta_time)
 
-    def move_units(self):
+    def move_all_units(self):
         # resolve movement & eat
         for y in range(self.grid_size):
             for x in range(self.grid_size):
                 unit = self.grid[y][x]
                 if not isinstance(unit, Unit):
+                    continue
+                if unit.hp == 0 and unit.move_timer == 0:
+                    self.grid[y][x] = None
                     continue
                 if isinstance(unit.target_cord, tuple) and x == unit.target_cord[1] and y == unit.target_cord[0]:
                     unit.target_cord = None
@@ -211,7 +214,7 @@ class GridManager:
         if u1.move_timer <= 0 and u2.hp <= 0:
             return True
 
-    def spawn_one_around(self, unit: Unit):
+    def spawn_one_around(self, unit: Unit, search_radius=3):
         if not isinstance(unit, (Black, White)):
             return
         for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:  # , (-1, -1), (1, 1), (1, -1), (-1, 1)]:
@@ -220,21 +223,17 @@ class GridManager:
                 continue
             if isinstance(self.grid[y][x], Unit) and self.grid[y][x].hp > 0:
                 continue
-            self[y][x] = unit.__class__(search_radius=3)
+            self[y][x] = unit.__class__(search_radius=search_radius)
             return
-        for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:  # , (-1, -1), (1, 1), (1, -1), (-1, 1)]:
-            y, x = unit.y + dy, unit.x + dx
-            if not (0 <= x < self.grid_size and 0 <= y < self.grid_size):
-                continue
-            if not isinstance(self.grid[y][x], type(unit)):
-                continue
-            self.grid[y][x].upgrade()
-            return
+        unit.upgrade()
 
-    def spawn_units(self):
+    def spawn_units(self, white_rad=3, black_rad=100):
         for unit in self.iter_unit():
             if unit.unit_class == ClassEnum.BASE and unit.atk_timer == 0:
-                self.spawn_one_around(unit)
+                if isinstance(unit, White):
+                    self.spawn_one_around(unit, search_radius=white_rad)
+                if isinstance(unit, Black):
+                    self.spawn_one_around(unit, search_radius=black_rad)
                 unit.atk_timer = unit.atk_cd
 
     def find_max_hp_target(self, _class) -> Union[Unit, None]:
