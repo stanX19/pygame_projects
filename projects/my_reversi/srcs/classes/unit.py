@@ -1,3 +1,4 @@
+from __future__ import annotations
 import math
 from typing import Union
 
@@ -112,7 +113,7 @@ class Unit:
             self.atk_cd = 10 / math.sqrt(self.hp - 4)
             self.unit_class = ClassEnum.BASE
 
-    def upgrade(self):
+    def _upgrade(self):
         self.hp += 1
         self.update_class()
         self.reset_timer()

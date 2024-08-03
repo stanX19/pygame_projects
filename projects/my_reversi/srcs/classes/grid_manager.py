@@ -1,8 +1,17 @@
+from __future__ import annotations
+
 import math
 import random
-from typing import Union, Callable
+from typing import Union, Any, Callable
 
 from .unit import Unit, Black, White, ClassEnum
+
+UPGRADE_COST = 10
+
+ENERGY_DICT: dict[Any, float] = {
+    Black: UPGRADE_COST * 15,
+    White: UPGRADE_COST * 15,
+}
 
 
 class GridRow:
@@ -148,7 +157,7 @@ class GridManager:
                 unit = self.grid[y][x]
                 if not isinstance(unit, Unit):
                     continue
-                if unit.hp == 0 and unit.move_timer == 0:
+                if unit.hp <= 0 and unit.move_timer == 0:
                     self.grid[y][x] = None
                     continue
                 if isinstance(unit.target_cord, tuple) and x == unit.target_cord[1] and y == unit.target_cord[0]:
@@ -214,27 +223,88 @@ class GridManager:
         if u1.move_timer <= 0 and u2.hp <= 0:
             return True
 
-    def spawn_one_around(self, unit: Unit, search_radius=3):
+    def upgrade_unit_at(self, x, y, _class):
+        unit = self.grid[y][x]
+        if not isinstance(unit, Unit) and ENERGY_DICT[_class] >= 10:
+            self[y][x] = _class(search_radius=3)
+            ENERGY_DICT[_class] -= 10
+        elif isinstance(unit, _class):
+            self.upgrade_unit(unit)
+
+    def spawn_one_around(self, unit: Unit):
         if not isinstance(unit, (Black, White)):
             return
-        for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:  # , (-1, -1), (1, 1), (1, -1), (-1, 1)]:
-            y, x = unit.y + dy, unit.x + dx
+
+        def is_base(cord):
+            _unit = self.grid[cord[1]][cord[0]]
+            return isinstance(_unit, Unit) and _unit.unit_class is ClassEnum.BASE
+
+        def is_upgradable(cord):
+            _unit = self.grid[cord[1]][cord[0]]
+            if not isinstance(_unit, Unit):
+                return True
+            if isinstance(_unit, type(unit)) and _unit.unit_class is not ClassEnum.BASE:
+                return True
+            return False
+
+        targets = self.search_all_that((unit.x, unit.y), is_path=is_base, is_target=is_upgradable)
+        best_cord = None
+        min_hp = float('inf')
+        for x, y in targets:
+            hp = 0
             if not (0 <= x < self.grid_size and 0 <= y < self.grid_size):
                 continue
-            if isinstance(self.grid[y][x], Unit) and self.grid[y][x].hp > 0:
+            elif isinstance(self.grid[y][x], type(unit)):
+                hp = self.grid[y][x].hp
+            elif isinstance(self.grid[y][x], Unit):
                 continue
-            self[y][x] = unit.__class__(search_radius=search_radius)
+            if hp < min_hp:
+                best_cord = (x, y)
+                min_hp = hp
+
+        if best_cord is not None:
+            self.upgrade_unit_at(*best_cord, type(unit))
+
+    def search_all_that(self, start: tuple[int, int], is_path: Callable[[tuple[int, int]], bool],
+                        is_target: Callable[[tuple[int, int]], bool]):
+        if start is None:
             return
-        unit.upgrade()
+        visited = {start}
+        ret: list[tuple[int, int]] = []
+        stack = [start]
+        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        while stack:
+            cord = stack.pop(0)
+            for dy, dx in directions:
+                y, x = cord[1] + dy, cord[0] + dx
+                if y < 0 or y >= self.grid_size or x < 0 or x >= self.grid_size:
+                    continue
+                curr = (x, y)
+                if is_target(curr):
+                    ret.append(curr)
+                elif curr not in visited and is_path(curr):
+                    stack.append(curr)
+                    visited.add(curr)
+
+        return ret
 
     def spawn_units(self, white_rad=3, black_rad=100):
         for unit in self.iter_unit():
             if unit.unit_class == ClassEnum.BASE and unit.atk_timer == 0:
-                if isinstance(unit, White):
-                    self.spawn_one_around(unit, search_radius=white_rad)
-                if isinstance(unit, Black):
-                    self.spawn_one_around(unit, search_radius=black_rad)
+                ENERGY_DICT[type(unit)] += UPGRADE_COST
                 unit.atk_timer = unit.atk_cd
+
+    def upgrade_unit(self, unit: Unit):
+        if not isinstance(unit, Unit):
+            return
+        if unit.unit_class == ClassEnum.BASE:
+            self.spawn_one_around(unit)
+        elif ENERGY_DICT[type(unit)] >= UPGRADE_COST:
+            ENERGY_DICT[type(unit)] -= UPGRADE_COST
+            unit._upgrade()
+        else:
+            return False
+        return True
 
     def find_max_hp_target(self, _class) -> Union[Unit, None]:
         max_hp = 0
