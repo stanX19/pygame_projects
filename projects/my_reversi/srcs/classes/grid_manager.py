@@ -226,7 +226,7 @@ class GridManager:
     def upgrade_unit_at(self, x, y, _class):
         unit = self.grid[y][x]
         if not isinstance(unit, Unit) and ENERGY_DICT[_class] >= 10:
-            self[y][x] = _class(search_radius=3)
+            self[y][x] = _class(search_radius=self.grid_size)
             ENERGY_DICT[_class] -= 10
         elif isinstance(unit, _class):
             self.upgrade_unit(unit)
@@ -235,32 +235,36 @@ class GridManager:
         if not isinstance(unit, (Black, White)):
             return
 
+        def is_same_class(cord):
+            return isinstance(self.grid[cord[1]][cord[0]], type(unit))
+
         def is_base(cord):
             _unit = self.grid[cord[1]][cord[0]]
-            return isinstance(_unit, Unit) and _unit.unit_class is ClassEnum.BASE
+            return is_same_class(cord) and _unit.unit_class is ClassEnum.BASE
 
         def is_upgradable(cord):
             _unit = self.grid[cord[1]][cord[0]]
-            if not isinstance(_unit, Unit):
+            if _unit is None:
                 return True
-            if isinstance(_unit, type(unit)) and _unit.unit_class is not ClassEnum.BASE:
+            if is_same_class(cord) and _unit.unit_class is not ClassEnum.BASE:
                 return True
             return False
 
-        targets = self.search_all_that((unit.x, unit.y), is_path=is_base, is_target=is_upgradable)
+        # is_path can change to is_base to ensure is upgraded to base first
+        targets = self.search_all_that((unit.x, unit.y), is_path=is_same_class, is_target=is_upgradable)
         best_cord = None
-        min_hp = float('inf')
+        min_score = float('inf')
         for x, y in targets:
-            hp = 0
+            score = (abs(unit.x - x) + abs(unit.y - y))
             if not (0 <= x < self.grid_size and 0 <= y < self.grid_size):
                 continue
             elif isinstance(self.grid[y][x], type(unit)):
-                hp = self.grid[y][x].hp
+                score += self.grid[y][x].hp
             elif isinstance(self.grid[y][x], Unit):
                 continue
-            if hp < min_hp:
+            if score < min_score:
                 best_cord = (x, y)
-                min_hp = hp
+                min_score = score
 
         if best_cord is not None:
             self.upgrade_unit_at(*best_cord, type(unit))
@@ -282,7 +286,7 @@ class GridManager:
                 curr = (x, y)
                 if is_target(curr):
                     ret.append(curr)
-                elif curr not in visited and is_path(curr):
+                if curr not in visited and is_path(curr):
                     stack.append(curr)
                     visited.add(curr)
 

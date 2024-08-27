@@ -135,7 +135,7 @@ class ReversiGame:
         self.screen.blit(info_text, info_rect)
 
     def black_play(self):
-        if random.random() > 0.01:
+        if random.random() > 0.05:
             return
         target = self.grid.find_max_hp_target(Black)
         self.grid.upgrade_unit(target)
