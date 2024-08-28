@@ -1,3 +1,4 @@
+from __future__ import annotations
 import math
 import sys
 from collections import deque
@@ -41,6 +42,7 @@ class PaintApp:
 
         # Undo stack
         self.undo_stack = deque(maxlen=UNDO_LIMIT)
+        self.redo_stack = deque(maxlen=UNDO_LIMIT)
 
         # Drawing state
         self.drawing = False
@@ -73,12 +75,23 @@ class PaintApp:
 
     def save_state(self):
         self.undo_stack.append(self.left_canvas.copy())
+        self.redo_stack.clear()
 
     def undo(self):
-        if self.undo_stack:
-            previous_state = self.undo_stack.pop()
-            self.left_canvas = previous_state
-            self.update_right_canvas()
+        if not self.undo_stack:
+            return
+        previous_state = self.undo_stack.pop()
+        self.redo_stack.append(self.left_canvas.copy())
+        self.left_canvas = previous_state
+        self.update_right_canvas()
+
+    def redo(self):
+        if not self.redo_stack:
+            return
+        next_state = self.redo_stack.pop()
+        self.undo_stack.append(self.left_canvas.copy())
+        self.left_canvas = next_state
+        self.update_right_canvas()
 
     def toggle_fill(self):
         # Fill the left canvas with transparency or black
@@ -144,8 +157,12 @@ class PaintApp:
                 self.last_pos = None
 
             if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_z and pygame.key.get_mods() & pygame.KMOD_CTRL:
+                CTRL_DOWN = pygame.key.get_mods() & pygame.KMOD_CTRL
+                SHIFT_DOWN = pygame.key.get_mods() & pygame.KMOD_SHIFT
+                if event.key == pygame.K_z and CTRL_DOWN and not SHIFT_DOWN:
                     self.undo()
+                if event.key == pygame.K_z and CTRL_DOWN and SHIFT_DOWN:
+                    self.redo()
                 if event.key == pygame.K_e:
                     self.eraser = not self.eraser
 
