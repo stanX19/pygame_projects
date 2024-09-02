@@ -1,8 +1,9 @@
 import math
 import random
+
 import pygame
 from classes.grid_manager import GridManager, ENERGY_DICT
-from classes.unit import Unit, Black, White, ClassEnum
+from classes.unit import Black, White, ClassEnum
 
 # Initialize Pygame
 pygame.init()
@@ -55,9 +56,7 @@ class ReversiGame:
         # self.grid[-2][2] = White(4)
         self.grid[0][-1] = Black(5)
         self.grid[0][-3] = Black(3)
-        self.grid[2][-1] = Black(3)
-        # self.grid[1][-3] = Black(4)
-        # self.grid[2][-2] = Black(4)
+        self.grid[2][-1] = Black(3)  # self.grid[1][-3] = Black(4)  # self.grid[2][-2] = Black(4)
 
     def draw_grid(self):
         for x in range(SIDE_SPACE, BOARD_SIZE + SIDE_SPACE + 1, CELL_SIZE):
@@ -91,11 +90,12 @@ class ReversiGame:
                 unit = self.grid[y][x]
                 if not unit:
                     continue
-                n = min(0.05, unit.move_cd)  # animation time cannot be more than n
+                n = min(0.1, unit.move_cd)  # animation time cannot be more than n
                 if unit.move_timer == float('inf'):
                     k = 1
                 else:
                     k = max(0, min(1, (unit.move_cd - unit.move_timer) / n))  # how much towards current
+                    k = k ** 2
                 _x = k * x + (1 - k) * unit.prev_x
                 _y = k * y + (1 - k) * unit.prev_y
                 center = (_x * CELL_SIZE + CELL_SIZE // 2 + SIDE_SPACE, _y * CELL_SIZE + CELL_SIZE // 2)
@@ -137,7 +137,20 @@ class ReversiGame:
     def black_play(self):
         if random.random() > 0.05:
             return
-        target = self.grid.find_max_hp_target(Black)
+        white_fighters = [i for i in self.grid.iter_unit() if
+                          isinstance(i, White) and i.unit_class is not ClassEnum.BASE]
+        black_fighters = [i for i in self.grid.iter_unit() if
+                          isinstance(i, Black) and i.unit_class is not ClassEnum.BASE]
+        black_bases = [i for i in self.grid.iter_unit() if
+                       isinstance(i, Black) and i.unit_class is ClassEnum.BASE]
+        if len(black_fighters) - len(white_fighters) > len(black_bases):
+            target = sorted(black_fighters, key=lambda u: u.hp)[-1]
+        elif black_bases:
+            target = black_bases[-1]
+        elif black_fighters:
+            target = black_fighters[-1]
+        else:
+            target = None
         self.grid.upgrade_unit(target)
 
     def recover_energy(self, delta_time):
@@ -170,11 +183,7 @@ class ReversiGame:
             self.grid[y][x].selected = True
 
     def check_end_game(self):
-        count = {
-            Black: 0,
-            White: 0,
-            type(None): 0
-        }
+        count = {Black: 0, White: 0, type(None): 0}
         for u in self.grid.iter_unit():
             count[type(u)] += 1
         if count[White] == 0:

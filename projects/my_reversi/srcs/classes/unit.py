@@ -53,8 +53,6 @@ class Unit:
         self._move_timer = self.move_cd
         self._atk_timer = self.atk_cd
 
-        # do not change to zero, when upgraded cd reset will cause recursive reset cd
-
     @property
     def move_timer(self) -> float:
         if self.move_cd == float('inf'):
@@ -82,7 +80,10 @@ class Unit:
     def attack(self, u2):
         if self.atk_timer > 0:
             return
+        if u2.hp - self.dmg <= 0 and self.move_timer > 0:
+            return
         u2.hp -= self.dmg
+        u2.update_class()
         self.atk_timer = self.atk_cd
 
     def update_time(self, delta_time):
@@ -90,13 +91,11 @@ class Unit:
         self.move_timer -= delta_time
 
     def update_class(self):
-        if self.hp <= 0:
-            self.move_cd = 5
-        if self.hp == 1:
-            self.dmg = 1
-            self.move_cd = 1
-            self.atk_cd = 1
-            self.unit_class = ClassEnum.BASIC
+        # if self.hp == 1:
+        self.dmg = 1
+        self.move_cd = 1
+        self.atk_cd = 1
+        self.unit_class = ClassEnum.BASIC
         if self.hp >= 2:
             self.dmg = 1
             self.move_cd = 0.5
@@ -104,8 +103,8 @@ class Unit:
             self.unit_class = ClassEnum.CALVARY
         if self.hp >= 3:
             self.dmg = 5
-            self.move_cd = 3
-            self.atk_cd = 3
+            self.move_cd = 0.5
+            self.atk_cd = 2.5
             self.unit_class = ClassEnum.CASTLE
         if self.hp >= 5:
             self.dmg = 0
@@ -113,10 +112,11 @@ class Unit:
             self.atk_cd = 10 / math.sqrt(self.hp - 4)
             self.unit_class = ClassEnum.BASE
 
-    def _upgrade(self):
+        self.reset_timer()
+
+    def upgrade(self):
         self.hp += 1
         self.update_class()
-        self.reset_timer()
 
     def __str__(self):
         return f"{self.__class__}[hp={self.hp}, dmg={self.dmg}\

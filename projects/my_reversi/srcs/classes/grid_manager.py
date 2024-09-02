@@ -2,16 +2,13 @@ from __future__ import annotations
 
 import math
 import random
-from typing import Union, Any, Callable
+from typing import Union, Any, Callable, Optional
 
 from .unit import Unit, Black, White, ClassEnum
 
 UPGRADE_COST = 10
 
-ENERGY_DICT: dict[Any, float] = {
-    Black: UPGRADE_COST * 15,
-    White: UPGRADE_COST * 15,
-}
+ENERGY_DICT: dict[Any, float] = {Black: UPGRADE_COST * 15, White: UPGRADE_COST * 15, }
 
 
 class GridRow:
@@ -90,7 +87,8 @@ class GridManager:
         path.reverse()
         return path
 
-    def _bfs(self, start, unit, is_blocking=None, find_enemy=True) -> list[tuple[int, int]]:
+    def _bfs(self, start: tuple[int, int], unit: Unit, is_blocking: Optional[Callable] = None,
+             find_enemy: bool = True) -> list[tuple[int, int]]:
         if not find_enemy and unit.target_cord is None:
             return [start]
         queue = [start]
@@ -123,7 +121,7 @@ class GridManager:
 
         return [start]
 
-    def bfs(self, start: tuple, unit: Unit):
+    def bfs(self, start: tuple[int, int], unit: Unit):
         def blocking(u: Unit):
             if not isinstance(u, type(unit)):
                 return False
@@ -142,7 +140,7 @@ class GridManager:
             ret = self._bfs(start, unit)
         return ret
 
-    def update_delta_time(self, delta_time):
+    def update_delta_time(self, delta_time: float):
         # update timers
         for y in range(self.grid_size):
             for x in range(self.grid_size):
@@ -171,8 +169,8 @@ class GridManager:
                     continue
 
                 # if face to face deduct hp
-                if isinstance(self.grid[target_y][target_x], Unit) \
-                        and type(self.grid[target_y][target_x]) != type(unit):
+                if isinstance(self.grid[target_y][target_x], Unit) and type(self.grid[target_y][target_x]) != type(
+                    unit):
                     self.fight(x, y, target_x, target_y)
 
                 # if last hit "eat it"
@@ -189,11 +187,7 @@ class GridManager:
         u1.attack(u2)
         u2.attack(u1)
 
-        balance_dict = {
-            White: -1,
-            Black: 1,
-            Unit: 0
-        }
+        balance_dict = {White: -1, Black: 1, Unit: 0}
         # print(f"fight! {u1} {u2}")
         # if equal fight, roll a dice
         if u1.hp <= 0 and u2.hp <= 0:
@@ -208,8 +202,8 @@ class GridManager:
                 survivor.hp = 1
             print(f"rolled dice {self.balance}")
 
-        u1.update_class()
-        u2.update_class()
+        # u1.update_class()
+        # u2.update_class()
 
     def can_eat(self, x1: int, y1: int, x2: int, y2: int):
         u1 = self.grid[y1][x1]
@@ -298,14 +292,14 @@ class GridManager:
                 ENERGY_DICT[type(unit)] += UPGRADE_COST
                 unit.atk_timer = unit.atk_cd
 
-    def upgrade_unit(self, unit: Unit):
+    def upgrade_unit(self, unit: Union[Any, Unit]):
         if not isinstance(unit, Unit):
             return
         if unit.unit_class == ClassEnum.BASE:
             self.spawn_one_around(unit)
         elif ENERGY_DICT[type(unit)] >= UPGRADE_COST:
             ENERGY_DICT[type(unit)] -= UPGRADE_COST
-            unit._upgrade()
+            unit.upgrade()
         else:
             return False
         return True
