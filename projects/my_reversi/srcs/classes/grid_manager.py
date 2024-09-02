@@ -10,6 +10,12 @@ UPGRADE_COST = 10
 
 ENERGY_DICT: dict[Any, float] = {Black: UPGRADE_COST * 15, White: UPGRADE_COST * 15, }
 
+# TODO:
+#   soul energy, increase on unit death
+#   can extract when needed
+#   x = soul energy;
+#   f(x) = (x / 4) ** 2
+
 
 class GridRow:
     def __init__(self, grid, y: int):
