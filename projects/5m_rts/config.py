@@ -4,10 +4,15 @@ Global constants and configuration for 5m War.
 import uuid
 
 # Screen & Map
-SCREEN_WIDTH = 1280
-SCREEN_HEIGHT = 720
+# Map dimensions (in tiles)
+MAP_COLS = 20
+MAP_ROWS = 10
+
+# Screen size derived from map size
+TILE_SIZE = 64  # Size of each tile in pixels
+SCREEN_WIDTH = MAP_COLS * TILE_SIZE  # 25 * 64 = 1600
+SCREEN_HEIGHT = MAP_ROWS * TILE_SIZE  # 15 * 64 = 960
 FPS = 60
-TILE_SIZE = 64  # Spatial Hash cell size
 
 # Colors (R, G, B)
 COLOR_BG = (30, 30, 30)
@@ -65,6 +70,7 @@ SEPARATION_FORCE = 500.0 # How hard units push away from each other
 # Upgrade System
 UPGRADE_COST_BASE = 5  # Base cost for first upgrade
 UPGRADE_COST_MULTIPLIER = 1.5  # Cost multiplier per level
+RANGE_UPGRADE_COST_MULTIPLIER = 10
 
 # Max upgrade levels
 MAX_UPGRADE_LEVEL = 5

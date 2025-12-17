@@ -33,8 +33,8 @@ class SceneManager:
         self.spatial_hash = SpatialHash(TILE_SIZE)
         
         # Pathfinding Grid (0: Walkable, 1: Blocked)
-        self.cols = (SCREEN_WIDTH // TILE_SIZE) + 1
-        self.rows = (SCREEN_HEIGHT // TILE_SIZE) + 1
+        self.cols = MAP_COLS
+        self.rows = MAP_ROWS
         self.grid = [[0 for _ in range(self.cols)] for _ in range(self.rows)]
         
         # Upgrade tracking per faction
@@ -386,49 +386,35 @@ class SceneManager:
         return ent
 
     def generate_terrain(self):
-        import random
-        # Calculate tile-based center coordinates
-        center_tile_x = SCREEN_WIDTH // 2 // TILE_SIZE
-        center_tile_y = SCREEN_HEIGHT // 2 // TILE_SIZE
+        """Generate procedural map using constraint propagation on tile grid"""
+        from map_generator import TileMapGenerator
         
-        # 1. Rivers: Cross shape dividing map into quadrants, with central bridges
-        # Vertical River - goes down the middle horizontally
-        for tile_y in range(self.rows):
-            # Skip center tiles for bridge (2 tiles gap on each side)
-            if abs(tile_y - center_tile_y) < 2:
-                continue  # Center Bridge (horizontal)
-            self.add_tile('river', center_tile_x, tile_y)
-
-        # Horizontal River - goes across the middle vertically  
-        for tile_x in range(self.cols):
-            # Skip center tiles for bridge (3 tiles gap on each side for wider bridge)
-            if abs(tile_x - center_tile_x) < 3:
-                continue  # Center Bridge (vertical)
-            self.add_tile('river', tile_x, center_tile_y)
-
-        # 2. Mountains: Strategic clusters to create choke points
-        # Define cluster centers in tile coordinates
-        # Quadrants: TL, TR, BL, BR
-        mountain_clusters = [
-            (center_tile_x // 2, center_tile_y // 2),           # Top-Left
-            (center_tile_x + center_tile_x // 2, center_tile_y // 2),  # Top-Right
-            (center_tile_x // 2, center_tile_y + center_tile_y // 2),  # Bottom-Left
-            (center_tile_x + center_tile_x // 2, center_tile_y + center_tile_y // 2)  # Bottom-Right
-        ]
+        # Initialize tile-based generator
+        generator = TileMapGenerator(self.cols, self.rows)
         
-        for cluster_x, cluster_y in mountain_clusters:
-            # Create a small cluster of mountains (3-5 mountains per cluster)
-            num_mountains = random.randint(3, 5)
-            for _ in range(num_mountains):
-                # Offset by a few tiles from cluster center
-                offset_x = random.randint(-1, 1)
-                offset_y = random.randint(-1, 1)
-                tile_x = cluster_x + offset_x
-                tile_y = cluster_y + offset_y
-                
-                # Ensure within bounds
-                if 0 <= tile_x < self.cols and 0 <= tile_y < self.rows:
-                    self.add_tile('mountain', tile_x, tile_y)
+        # Generate map satisfying all constraints
+        num_players = 4  # Can be made configurable
+        castle_tiles, resource_tiles, obstacle_tiles = generator.generate_map(num_players)
+        
+        # Place obstacles on tiles
+        for tile_x, tile_y, obstacle_type in obstacle_tiles:
+            self.add_tile(obstacle_type, tile_x, tile_y)
+        
+        # Convert castle tile positions to pixel positions (center of tile)
+        self.generated_castle_positions = []
+        for tile_x, tile_y in castle_tiles:
+            pixel_x = tile_x * TILE_SIZE + TILE_SIZE // 2
+            pixel_y = tile_y * TILE_SIZE + TILE_SIZE // 2
+            self.generated_castle_positions.append((pixel_x, pixel_y))
+        
+        # Convert resource tile positions to pixel positions (center of tile)
+        self.generated_resource_positions = []
+        for tile_x, tile_y in resource_tiles:
+            pixel_x = tile_x * TILE_SIZE + TILE_SIZE // 2
+            pixel_y = tile_y * TILE_SIZE + TILE_SIZE // 2
+            self.generated_resource_positions.append((pixel_x, pixel_y))
+            # Create resource entity at pixel position
+            self.create_entity('resource_point', pixel_x, pixel_y, FACTION_NEUTRAL)
 
 def main():
     pygame.init()
@@ -481,39 +467,26 @@ def main():
         # Init upgrades for bots
         scene.init_faction_upgrades(f)
 
-    # Battle Royale Setup (4 Corners)
-    # Player: Top Left
-    ent = scene.create_entity('castle', 100, 100, FACTION_PLAYER)
-    scene.world.add_component(ent, AIController(auto_spawn=False, auto_attack=False)) # Player controls surplus manually
-    
-    # Bots placement
-    positions = [
-        (SCREEN_WIDTH - 100, 100),              # Top Right
-        (100, SCREEN_HEIGHT - 100),             # Bottom Left
-        (SCREEN_WIDTH - 100, SCREEN_HEIGHT - 100) # Bottom Right
-    ]
-    
-    for i, faction in enumerate(bot_factions):
-        if i < len(positions):
-            ent = scene.create_entity('castle', positions[i][0], positions[i][1], faction)
-            scene.world.add_component(ent, AIController())
-
-    # Generate Terrain
+    # Generate Terrain FIRST (creates castle positions and resources)
     scene.generate_terrain()
-
-    # Map Resources (placed on strategic tile locations)
-    # Center resource
-    center_x = SCREEN_WIDTH // 2 // TILE_SIZE
-    center_y = SCREEN_HEIGHT // 2 // TILE_SIZE
-    scene.add_tile('resource_point', center_x, center_y)
     
-    # Top quadrant resources (left and right of center)
-    scene.add_tile('resource_point', center_x + 2, 2)
-    scene.add_tile('resource_point', center_x - 2, 2)
+    # Use procedurally generated castle positions
+    all_factions = [FACTION_PLAYER] + bot_factions
     
-    # Bottom quadrant resources (left and right of center)
-    scene.add_tile('resource_point', center_x + 2, scene.rows - 3)
-    scene.add_tile('resource_point', center_x - 2, scene.rows - 3)
+    for i, (cx, cy) in enumerate(scene.generated_castle_positions):
+        if i >= len(all_factions):
+            break  # More positions than factions
+        
+        faction = all_factions[i]
+        ent = scene.create_entity('castle', cx, cy, faction)
+        
+        # Player has manual control, bots have AI
+        if faction == FACTION_PLAYER:
+            scene.world.add_component(ent, AIController(auto_spawn=False, auto_attack=False))
+        else:
+            scene.world.add_component(ent, AIController())
+    
+    # Resources are already placed by generate_terrain()
 
     running = True
     while running:

@@ -27,7 +27,7 @@ class UpgradeSystem(esper.Processor):
         """Calculate cost for next range upgrade level (5x more expensive)"""
         if current_level >= MAX_UPGRADE_LEVEL:
             return float('inf')  # Max level reached
-        return int(UPGRADE_COST_BASE * (UPGRADE_COST_MULTIPLIER ** current_level) * 5)
+        return int(UPGRADE_COST_BASE * (UPGRADE_COST_MULTIPLIER ** current_level) * RANGE_UPGRADE_COST_MULTIPLIER)
     
     def update_unit_visual(self, ent, upgrades, trans):
         """Update unit's visual shape based on upgrade levels"""
