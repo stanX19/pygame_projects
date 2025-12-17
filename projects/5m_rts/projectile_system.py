@@ -50,56 +50,21 @@ class ProjectileSystem(esper.Processor):
                 if proj.target_entity is not None:
                     try:
                         target_stats = self.world.component_for_entity(proj.target_entity, Stats)
-                        target_ident = self.world.component_for_entity(proj.target_entity, Identity)
                         
                         # Apply damage
                         target_stats.hp -= proj.damage
                         
-                        # Handle death
+                        # Check for death and create kill request
                         if target_stats.hp <= 0:
                             target_stats.dead = True
                             
-                            # Handle different entity types
-                            if target_ident.type == 'resource':
-                                # Capture resource point - change faction and restore HP
-                                target_ident.faction = proj.attacker_faction
-                                target_stats.hp = target_stats.max_hp
-                                target_stats.dead = False
-                                
-                                # Update color to match new faction
-                                if self.world.has_component(proj.target_entity, Renderable):
-                                    render = self.world.component_for_entity(proj.target_entity, Renderable)
-                                    render.color = self.world.scene_manager.get_faction_color(proj.attacker_faction)
-                                
-                                # Add resource generator if not present
-                                if not self.world.has_component(proj.target_entity, ResourceGenerator):
-                                    self.world.add_component(proj.target_entity, ResourceGenerator(rate=RES_GENERATION_RATE))
-                            
-                            elif target_ident.type == 'castle':
-                                # Capture castle - change faction and restore HP
-                                target_ident.faction = proj.attacker_faction
-                                target_stats.hp = target_stats.max_hp
-                                target_stats.dead = False
-                                
-                                # Update color to match new faction
-                                if self.world.has_component(proj.target_entity, Renderable):
-                                    render = self.world.component_for_entity(proj.target_entity, Renderable)
-                                    render.color = self.world.scene_manager.get_faction_color(proj.attacker_faction)
-
-                                # Update AI Controller
-                                is_player = (proj.attacker_faction == self.world.scene_manager.player_faction_id)
-                                if self.world.has_component(proj.target_entity, AIController):
-                                    ai = self.world.component_for_entity(proj.target_entity, AIController)
-                                    ai.auto_attack = not is_player
-                                    ai.auto_spawn = not is_player
-                                else:
-                                    self.world.add_component(proj.target_entity, 
-                                        AIController(auto_spawn=not is_player, auto_attack=not is_player))
-                            
-                            elif target_ident.type == 'unit':
-                                # Units just die and get deleted
-                                self.world.delete_entity(proj.target_entity)
-                            
+                            # Create kill request for CleanupSystem to handle
+                            self.world.create_entity(
+                                KillRequest(
+                                    killer_faction=proj.attacker_faction,
+                                    killed_entity=proj.target_entity
+                                )
+                            )
                     except KeyError:
                         pass  # Target no longer exists
                 

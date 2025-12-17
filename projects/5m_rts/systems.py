@@ -428,49 +428,17 @@ class CombatSystem(esper.Processor):
                     
                     stats.current_cd = stats.attack_cd
 
+                    # Check for death and create kill request
                     if enemy_stats.hp <= 0:
                         enemy_stats.dead = True
                         
-                        # Capture mechanics for strategic points
-                        if enemy_ident.type == 'resource':
-                            # Capture resource point - change faction and restore HP
-                            enemy_ident.faction = ident.faction
-                            enemy_stats.hp = enemy_stats.max_hp
-                            enemy_stats.dead = False
-                            
-                            # Update color to match new faction
-                            if self.world.has_component(closest_enemy, Renderable):
-                                render = self.world.component_for_entity(closest_enemy, Renderable)
-                                render.color = self.world.scene_manager.get_faction_color(ident.faction)
-                            
-                            # Add resource generator if captured
-                            if not self.world.has_component(closest_enemy, ResourceGenerator):
-                                self.world.add_component(closest_enemy, ResourceGenerator(rate=RES_GENERATION_RATE))
-                        
-                        elif enemy_ident.type == 'castle':
-                            # Capture castle - change faction and restore HP
-                            enemy_ident.faction = ident.faction
-                            enemy_stats.hp = enemy_stats.max_hp
-                            enemy_stats.dead = False
-                            
-                            # Update color to match new faction
-                            if self.world.has_component(closest_enemy, Renderable):
-                                render = self.world.component_for_entity(closest_enemy, Renderable)
-                                render.color = self.world.scene_manager.get_faction_color(ident.faction)
-
-                            # Update AI Controller
-                            is_player = (ident.faction == self.world.scene_manager.player_faction_id)
-                            if self.world.has_component(closest_enemy, AIController):
-                                ai = self.world.component_for_entity(closest_enemy, AIController)
-                                ai.auto_attack = not is_player
-                                ai.auto_spawn = not is_player
-                            else:
-                                self.world.add_component(closest_enemy, 
-                                    AIController(auto_spawn=not is_player, auto_attack=not is_player))
-                        
-                        elif enemy_ident.type == 'unit':
-                            # Delete units when killed
-                            self.world.delete_entity(closest_enemy)
+                        # Create kill request for CleanupSystem to handle
+                        self.world.create_entity(
+                            KillRequest(
+                                killer_faction=ident.faction,
+                                killed_entity=closest_enemy
+                            )
+                        )
 
         # Static Defenses (Castles & Resources)
         for ent, (trans, ident, stats) in self.world.get_components(Transform, Identity, Stats):
@@ -708,7 +676,12 @@ class RenderSystem(esper.Processor):
             button_x = panel_x + 10
             button_y = panel_y + 30 + i * spacing_y
             current_level = upgrades.get(key, 0)
-            cost = upgrade_sys.get_upgrade_cost(current_level)
+            
+            # Use special cost function for range upgrades (5x more expensive)
+            if key == 'unit_range':
+                cost = upgrade_sys.get_range_upgrade_cost(current_level)
+            else:
+                cost = upgrade_sys.get_upgrade_cost(current_level)
             
             # Button rectangle
             button_rect = pygame.Rect(button_x, button_y, button_width, button_height)
@@ -790,6 +763,11 @@ class RenderSystem(esper.Processor):
 
             if rend.shape == 'circle':
                 pygame.draw.circle(self.window, color, (int(trans.x), int(trans.y)), int(trans.radius))
+            elif rend.shape == 'polygon' and rend.polygon_points:
+                # Draw custom polygon for upgraded units
+                translated_points = [(int(trans.x + px), int(trans.y + py)) for px, py in rend.polygon_points]
+                if len(translated_points) >= 3:
+                    pygame.draw.polygon(self.window, color, translated_points)
             elif rend.shape == 'square':
                 rect = pygame.Rect(trans.x - trans.radius, trans.y - trans.radius, trans.radius * 2, trans.radius * 2)
                 pygame.draw.rect(self.window, color, rect)
@@ -989,8 +967,31 @@ class AISystem(esper.Processor):
         random.shuffle(candidates)
         
         for target_trans in candidates:
+             # For resource points, check units at an offset position (where castle would be built)
+             # This avoids trying to build at the exact resource point location
+             check_x = target_trans.x
+             check_y = target_trans.y
+             
+             # If it's a resource point, offset the check position
+             try:
+                 target_ent = None
+                 for ent, (t, i) in self.world.get_components(Transform, Identity):
+                     if t == target_trans:
+                         target_ent = ent
+                         break
+                 
+                 if target_ent:
+                     target_ident = self.world.component_for_entity(target_ent, Identity)
+                     if target_ident.type == 'resource':
+                         # Offset by 120 in a random direction for resource points
+                         angle = random.uniform(0, 6.28)
+                         check_x = target_trans.x + math.cos(angle) * 120
+                         check_y = target_trans.y + math.sin(angle) * 120
+             except KeyError:
+                 pass
+             
              nearby_units = []
-             neighbors = self.sm.spatial_hash.query_nearby(target_trans.x, target_trans.y)
+             neighbors = self.sm.spatial_hash.query_nearby(check_x, check_y)
              for nid in neighbors:
                  try:
                      u_ident = self.world.component_for_entity(nid, Identity)
@@ -1026,10 +1027,13 @@ class AISystem(esper.Processor):
     def _try_upgrades(self, faction):
         """AI decision logic for purchasing upgrades"""
         resources = self.sm.resources.get(faction, 0)
-        
-        # Don't upgrade if low on resources
-        if resources < 15:
+
+        # higher resource higher chance to upgrade
+        k = 2 * STARTING_RESOURCES
+        val = 0.4 + (k - resources) / k
+        if random.uniform(0, 1) < val:
             return
+        print(val)
         
         # Get upgrade system
         upgrade_sys = None
@@ -1037,247 +1041,216 @@ class AISystem(esper.Processor):
             if processor.__class__.__name__ == 'UpgradeSystem':
                 upgrade_sys = processor
                 break
-        
+
         if not upgrade_sys:
             return
-        
         upgrades = self.sm.faction_upgrades[faction]
         
-        # Strategy: Prioritize based on game time and current situation
-        game_time = self.sm.game_time
+        # Max out unit upgrades (gather all affordable options)
+        affordable_upgrades = []
         
-        # Early game (0-90s): Focus on unit damage and HP
-        if game_time < 90:
-            # Upgrade unit damage first (offense)
-            if upgrades['unit_dmg'] < 2 and resources >= upgrade_sys.get_upgrade_cost(upgrades['unit_dmg']):
-                if upgrade_sys.upgrade_unit_dmg(faction):
-                    return
-            # Then unit HP (survivability)
-            if upgrades['unit_hp'] < 2 and resources >= upgrade_sys.get_upgrade_cost(upgrades['unit_hp']):
-                if upgrade_sys.upgrade_unit_hp(faction):
-                    return
+        for upgrade_type in ['unit_hp', 'unit_dmg', 'unit_cd', 'unit_speed']:
+            if upgrades[upgrade_type] < MAX_UPGRADE_LEVEL:
+                cost = upgrade_sys.get_upgrade_cost(upgrades[upgrade_type])
+                if resources >= cost:
+                    affordable_upgrades.append((upgrade_type, cost))
         
-        # Mid game (90-180s): Balance offense and castle defense
-        elif game_time < 180:
-            # Upgrade castle HP (defend base)
-            if upgrades['castle_hp'] < 2 and resources >= upgrade_sys.get_upgrade_cost(upgrades['castle_hp']):
-                if upgrade_sys.upgrade_castle_hp(faction):
-                    return
-            # Unit speed for better positioning
-            if upgrades['unit_speed'] < 1 and resources >= upgrade_sys.get_upgrade_cost(upgrades['unit_speed']):
-                if upgrade_sys.upgrade_unit_speed(faction):
-                    return
-            # Castle damage
-            if upgrades['castle_dmg'] < 2 and resources >= upgrade_sys.get_upgrade_cost(upgrades['castle_dmg']):
-                if upgrade_sys.upgrade_castle_dmg(faction):
-                    return
+        # Also consider range (with special cost)
+        if upgrades['unit_range'] < MAX_UPGRADE_LEVEL:
+            cost = upgrade_sys.get_range_upgrade_cost(upgrades['unit_range'])
+            if resources >= cost:
+                affordable_upgrades.append(('unit_range', cost))
         
-        # Late game (180s+): Max out everything important
-        else:
-            # Count owned resource points
-            res_points = 0
-            for ent, ident in self.world.get_component(Identity):
-                if ident.faction == faction and ident.type == 'resource':
-                    res_points += 1
+        # Pick randomly from affordable upgrades (weighted by inverse cost - cheaper = more likely)
+        if affordable_upgrades:
+            # Slight preference for cheaper upgrades, but still random
+            choice = random.choice(affordable_upgrades)
+            upgrade_type = choice[0]
             
-            # If we have resource points, upgrade their rate
-            if res_points > 0 and upgrades['resource_rate'] < 2:
-                cost = upgrade_sys.get_upgrade_cost(upgrades['resource_rate'])
-                if resources >= cost and upgrade_sys.upgrade_resource_rate(faction):
-                    return
-            
-            # Castle-to-castle movement for fast reinforcement
-            if upgrades['castle_move'] < 1:
-                cost = upgrade_sys.get_upgrade_cost(upgrades['castle_move'])
-                if resources >= cost and upgrade_sys.upgrade_castle_move(faction):
-                    return
-            
-            # Max out unit upgrades
-            cheapest_upgrade = None
-            cheapest_cost = float('inf')
-            
-            for upgrade_type in ['unit_hp', 'unit_dmg', 'unit_cd', 'unit_speed']:
-                if upgrades[upgrade_type] < MAX_UPGRADE_LEVEL:
-                    cost = upgrade_sys.get_upgrade_cost(upgrades[upgrade_type])
-                    if cost < cheapest_cost and resources >= cost:
-                        cheapest_cost = cost
-                        cheapest_upgrade = upgrade_type
-            
-            if cheapest_upgrade:
-                if cheapest_upgrade == 'unit_hp':
-                    upgrade_sys.upgrade_unit_hp(faction)
-                elif cheapest_upgrade == 'unit_dmg':
-                    upgrade_sys.upgrade_unit_dmg(faction)
-                elif cheapest_upgrade == 'unit_cd':
-                    upgrade_sys.upgrade_unit_cd(faction)
-                elif cheapest_upgrade == 'unit_speed':
-                    upgrade_sys.upgrade_unit_speed(faction)
-                return
+            if upgrade_type == 'unit_hp':
+                upgrade_sys.upgrade_unit_hp(faction)
+            elif upgrade_type == 'unit_dmg':
+                upgrade_sys.upgrade_unit_dmg(faction)
+            elif upgrade_type == 'unit_cd':
+                upgrade_sys.upgrade_unit_cd(faction)
+            elif upgrade_type == 'unit_speed':
+                upgrade_sys.upgrade_unit_speed(faction)
+            elif upgrade_type == 'unit_range':
+                upgrade_sys.upgrade_unit_range(faction)
+            return
 
     def process(self):
         dt = self.sm.dt
         self.timer += dt
         self.expansion_timer += dt
-        self.upgrade_timer += dt
 
         check_expansion = False
         if self.expansion_timer > 5.0:
             self.expansion_timer = 0
             check_expansion = True
-        
-        # Check upgrades every 10 seconds
-        check_upgrades = False
-        if self.upgrade_timer > 10.0:
-            self.upgrade_timer = 0
-            check_upgrades = True
 
-        if self.timer > 0.2:
-            self.timer = 0
-            
-            # 1. Global Castle Behavior (Defensive Garrison)
-            # Ensures basic defense for ALL castles (Player & AI)
-            for ent, (trans, ident) in self.world.get_components(Transform, Identity):
-                if ident.type == 'castle':
-                    faction = ident.faction
-                    res = self.sm.resources.get(faction, 0)
-                    if res >= UNIT_COST:
-                        count = self._count_nearby_allies(trans.x, trans.y, faction)
-                        if count < 10:
-                            self.sm.spawn_unit(trans.x, trans.y, faction)
+        if self.timer < 0.2:
+            return
+        self.timer = 0
 
-            # 2. AI Strategic Decisions (Commanders)
-            # Pre-calc strengths
-            unit_counts = {}
-            for ent, ident in self.world.get_component(Identity):
-                if ident.type == 'unit':
-                    unit_counts[ident.faction] = unit_counts.get(ident.faction, 0) + 1
-
-            processed_factions = set()
-            for ent, (ai, trans, ident) in self.world.get_components(AIController, Transform, Identity):
-                if not ai.active: continue
-                
+        # 1. Global Castle Behavior (Defensive Garrison)
+        # Ensures basic defense for ALL castles (Player & AI)
+        for ent, (trans, ident) in self.world.get_components(Transform, Identity):
+            if ident.type == 'castle':
                 faction = ident.faction
-                
-                # Expansion Check
-                if check_expansion and ai.auto_spawn and faction not in processed_factions:
-                    processed_factions.add(faction)
-                    self._try_expansion(faction)
-                
-                # Upgrade Check (for AI factions)
-                if check_upgrades and faction != self.sm.player_faction_id:
-                    self._try_upgrades(faction)
-                
-                # A. Surplus / Defense Spawning
                 res = self.sm.resources.get(faction, 0)
-                
-                # Check damage
-                is_damaged = False
-                try:
-                    stats = self.world.component_for_entity(ent, Stats)
-                    if stats.hp < stats.max_hp: is_damaged = True
-                except KeyError: pass
+                if res >= UNIT_COST:
+                    count = self._count_nearby_allies(trans.x, trans.y, faction)
+                    if count < 10:
+                        self.sm.spawn_unit(trans.x, trans.y, faction)
 
-                if ai.auto_spawn:
-                    # Logic: Spend freely if weak or threatened. Save for expansion if strong.
-                    threshold = 100
-                    if is_damaged: 
-                        threshold = 0
-                    elif unit_counts.get(faction, 0) >= 20:
-                        threshold = CASTLE_BUILD_COST + 300 # Save up for castle (Cost=500)
+        # 2. AI Strategic Decisions (Commanders)
+        # Pre-calc strengths
+        unit_counts = {}
+        for ent, ident in self.world.get_component(Identity):
+            if ident.type == 'unit':
+                unit_counts[ident.faction] = unit_counts.get(ident.faction, 0) + 1
 
-                    if res > threshold:
-                        # Dump resources
-                        while self.sm.resources.get(faction, 0) >= UNIT_COST:
+        processed_factions = set()
+        upgrade_processed_factions = set()  # Separate set for upgrades
+        for ent, (ai, trans, ident) in self.world.get_components(AIController, Transform, Identity):
+            if not ai.active:
+                continue
+
+            faction = ident.faction
+
+            # Expansion Check
+            if check_expansion and ai.auto_spawn and faction not in processed_factions:
+                processed_factions.add(faction)
+                self._try_expansion(faction)
+
+            # Upgrade Check (for AI factions, once per faction)
+            if faction != self.sm.player_faction_id and faction not in upgrade_processed_factions:
+                upgrade_processed_factions.add(faction)
+                self._try_upgrades(faction)
+
+            # A. Surplus / Defense Spawning
+            res = self.sm.resources.get(faction, 0)
+
+            # Check damage
+            is_damaged = False
+            try:
+                stats = self.world.component_for_entity(ent, Stats)
+                if stats.hp < stats.max_hp: is_damaged = True
+            except KeyError: pass
+
+            if ai.auto_spawn:
+                # Logic: Spend freely if weak or threatened. Save for expansion/upgrades if strong.
+                threshold = 100  # Reserve for upgrades
+                if is_damaged:
+                    threshold = 20  # Emergency - but still save a bit
+                elif unit_counts.get(faction, 0) >= 20:
+                    threshold = CASTLE_BUILD_COST + 300  # Save up for castle
+
+                # Reserve additional resources for upgrades (game-time based)
+                game_time = self.sm.game_time
+                if game_time > 60:  # After 1 minute, start saving for upgrades
+                    threshold = max(threshold, 30)  # Keep at least 30
+                if game_time > 120:  # After 2 minutes
+                    threshold = max(threshold, 50)  # Keep at least 50
+
+                if res > threshold:
+                    # Spend excess, but don't dump everything
+                    max_spawns = (res - threshold) // UNIT_COST
+                    max_spawns = min(max_spawns, 5)  # Limit burst spawning
+                    for _ in range(max_spawns):
+                        if self.sm.resources.get(faction, 0) >= UNIT_COST:
                             self.sm.spawn_unit(trans.x, trans.y, faction)
-                
-                # B. Command Units (Commander Logic)
-                if not ai.auto_attack:
-                    continue
 
-                # Find targets
-                my_strength = unit_counts.get(faction, 0)
-                targets = []
-                for t_ent, (t_trans, t_ident) in self.world.get_components(Transform, Identity):
-                    if t_ident.faction != faction and t_ident.type in ['resource', 'castle', 'unit']:
-                        
-                        priority = 10
-                        local_threat = 0
-                        
-                        if t_ident.type == 'resource': 
-                            if t_ident.faction == FACTION_NEUTRAL: priority = 60 # High priority expansion
-                            else: priority = 40
-                        elif t_ident.type == 'castle': priority = 80 # Ultimate goal
-                        elif t_ident.type == 'unit': priority = 20
-                        
-                        # Local Threat Assessment: Scan for defenders
-                        if t_ident.type in ['castle', 'resource'] and t_ident.faction != FACTION_NEUTRAL:
-                             neighbors = self.sm.spatial_hash.query_nearby(t_trans.x, t_trans.y)
-                             for nid in neighbors:
-                                  try:
-                                      n_ident = self.world.component_for_entity(nid, Identity)
-                                      if n_ident.faction == t_ident.faction and n_ident.type == 'unit':
-                                           local_threat += 1
-                                  except KeyError: pass
+            # B. Command Units (Commander Logic)
+            if not ai.auto_attack:
+                continue
 
-                        targets.append((t_trans, priority, t_ident.type, t_ident.faction, local_threat))
-                
-                if not targets: continue
-                
-                # Filter Sample
-                important = [t for t in targets if t[2] in ['castle', 'resource']]
-                units = [t for t in targets if t[2] == 'unit']
-                
-                if len(units) > 10: 
-                    units = random.sample(units, 10)
-                
-                final_targets = important + units
+            # Find targets
+            my_strength = unit_counts.get(faction, 0)
+            targets = []
+            for t_ent, (t_trans, t_ident) in self.world.get_components(Transform, Identity):
+                if t_ident.faction != faction and t_ident.type in ['resource', 'castle', 'unit']:
 
-                # Calculate Strategic Weights (Global Distribution)
-                scored_targets = []
-                
-                for t_trans, prio, t_type, t_faction, t_threat in final_targets:
-                     # Value = Priority - Threat
-                     val = (prio * 10) - (t_threat * 10)
-                     
-                     # Distance from Base (Commander)
-                     d = math.hypot(t_trans.x - trans.x, t_trans.y - trans.y)
-                     val -= d * 0.5
-                     
-                     if val > 10: # Minimum viability
-                         scored_targets.append((t_trans, val))
+                    priority = 10
+                    local_threat = 0
 
-                if not scored_targets: continue
-                
-                # Constraint: Max 2 targets, must be comparable (>50% score)
-                scored_targets.sort(key=lambda x: x[1], reverse=True)
-                weighted_targets = [scored_targets[0]]
-                if len(scored_targets) > 1:
-                     if scored_targets[1][1] > 0.5 * scored_targets[0][1]:
-                         weighted_targets.append(scored_targets[1])
-                
-                total_weight = sum(x[1] for x in weighted_targets)
+                    if t_ident.type == 'resource':
+                        # if t_ident.faction == FACTION_NEUTRAL: priority = 60 # High priority expansion
+                        # else: priority = 40
+                        priority = 60
+                    elif t_ident.type == 'castle': priority = 60
+                    elif t_ident.type == 'unit': priority = 20
 
-                # Command Idle Units using Probability Distribution
-                for u_ent, (u_ident, u_mov, u_trans) in self.world.get_components(Identity, Movement, Transform):
-                     if u_ident.faction == faction and not u_mov.moving:
-                         # Stochastic Selection
-                         r = random.uniform(0, total_weight)
-                         acc = 0
-                         target = weighted_targets[0][0]
-                         for t, w in weighted_targets:
-                             acc += w
-                             if r <= acc:
-                                 target = t
-                                 break
-                         
-                         path = self.sm.get_path(u_trans.x, u_trans.y, target.x, target.y)
-                         u_mov.path = path
-                         if path:
-                             u_mov.target_x, u_mov.target_y = path[0]
-                         else:
-                             u_mov.target_x = target.x
-                             u_mov.target_y = target.y
-                         u_mov.moving = True
+                    # Local Threat Assessment: Scan for defenders
+                    if t_ident.type in ['castle', 'resource'] and t_ident.faction != FACTION_NEUTRAL:
+                         neighbors = self.sm.spatial_hash.query_nearby(t_trans.x, t_trans.y)
+                         for nid in neighbors:
+                              try:
+                                  n_ident = self.world.component_for_entity(nid, Identity)
+                                  if n_ident.faction == t_ident.faction and n_ident.type == 'unit':
+                                       local_threat += 1
+                              except KeyError: pass
+
+                    targets.append((t_trans, priority, t_ident.type, t_ident.faction, local_threat))
+
+            if not targets: continue
+
+            # Filter Sample
+            important = [t for t in targets if t[2] in ['castle', 'resource']]
+            units = [t for t in targets if t[2] == 'unit']
+
+            if len(units) > 10:
+                units = random.sample(units, 10)
+
+            final_targets = important + units
+
+            # Calculate Strategic Weights (Global Distribution)
+            scored_targets = []
+
+            for t_trans, prio, t_type, t_faction, t_threat in final_targets:
+                 # Value = Priority - Threat
+                 val = (prio * 10) - (t_threat * 10)
+
+                 # Distance from Base (Commander)
+                 d = math.hypot(t_trans.x - trans.x, t_trans.y - trans.y)
+                 val -= d * 0.5
+
+                 if val > 10: # Minimum viability
+                     scored_targets.append((t_trans, val))
+
+            if not scored_targets: continue
+
+            # Constraint: Max 2 targets, must be comparable (>50% score)
+            scored_targets.sort(key=lambda x: x[1], reverse=True)
+            weighted_targets = [scored_targets[0]]
+            if len(scored_targets) > 1:
+                 if scored_targets[1][1] > 0.5 * scored_targets[0][1]:
+                     weighted_targets.append(scored_targets[1])
+
+            total_weight = sum(x[1] for x in weighted_targets)
+
+            # Command Idle Units using Probability Distribution
+            for u_ent, (u_ident, u_mov, u_trans) in self.world.get_components(Identity, Movement, Transform):
+                 if u_ident.faction == faction and not u_mov.moving:
+                     # Stochastic Selection
+                     r = random.uniform(0, total_weight)
+                     acc = 0
+                     target = weighted_targets[0][0]
+                     for t, w in weighted_targets:
+                         acc += w
+                         if r <= acc:
+                             target = t
+                             break
+
+                     path = self.sm.get_path(u_trans.x, u_trans.y, target.x, target.y)
+                     u_mov.path = path
+                     if path:
+                         u_mov.target_x, u_mov.target_y = path[0]
+                     else:
+                         u_mov.target_x = target.x
+                         u_mov.target_y = target.y
+                     u_mov.moving = True
 
 
 class WinConditionSystem(esper.Processor):

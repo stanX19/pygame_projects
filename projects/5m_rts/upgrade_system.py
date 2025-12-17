@@ -22,6 +22,33 @@ class UpgradeSystem(esper.Processor):
             return float('inf')  # Max level reached
         return int(UPGRADE_COST_BASE * (UPGRADE_COST_MULTIPLIER ** current_level))
     
+    @staticmethod
+    def get_range_upgrade_cost(current_level):
+        """Calculate cost for next range upgrade level (5x more expensive)"""
+        if current_level >= MAX_UPGRADE_LEVEL:
+            return float('inf')  # Max level reached
+        return int(UPGRADE_COST_BASE * (UPGRADE_COST_MULTIPLIER ** current_level) * 5)
+    
+    def update_unit_visual(self, ent, upgrades, trans):
+        """Update unit's visual shape based on upgrade levels"""
+        from shape_generator import generate_unit_shape
+        
+        # Generate custom polygon based on upgrade levels
+        polygon_points = generate_unit_shape(
+            trans.radius,
+            upgrades.hp_level,
+            upgrades.dmg_level,
+            upgrades.cd_level,
+            upgrades.speed_level,
+            upgrades.range_level
+        )
+        
+        # Update renderable
+        if self.world.has_component(ent, Renderable):
+            rend = self.world.component_for_entity(ent, Renderable)
+            rend.shape = 'polygon'
+            rend.polygon_points = polygon_points
+    
     def upgrade_unit_hp(self, faction_id):
         """Upgrade HP for all units of a faction"""
         cost = self.get_upgrade_cost(self.sm.faction_upgrades[faction_id]['unit_hp'])
@@ -36,7 +63,7 @@ class UpgradeSystem(esper.Processor):
         level = self.sm.faction_upgrades[faction_id]['unit_hp']
         
         # Apply to all existing units
-        for ent, (ident, stats, upgrades) in self.world.get_components(Identity, Stats, Upgrades):
+        for ent, (ident, stats, upgrades, trans) in self.world.get_components(Identity, Stats, Upgrades, Transform):
             if ident.faction == faction_id and ident.type == 'unit':
                 upgrades.hp_level = level
                 # Increase max HP and current HP
@@ -45,6 +72,8 @@ class UpgradeSystem(esper.Processor):
                 hp_ratio = stats.hp / stats.max_hp
                 stats.max_hp = new_max_hp
                 stats.hp = int(new_max_hp * hp_ratio)  # Scale current HP proportionally
+                # Update visual shape
+                self.update_unit_visual(ent, upgrades, trans)
         
         return True
     
@@ -58,10 +87,12 @@ class UpgradeSystem(esper.Processor):
         self.sm.faction_upgrades[faction_id]['unit_dmg'] += 1
         level = self.sm.faction_upgrades[faction_id]['unit_dmg']
         
-        for ent, (ident, stats, upgrades) in self.world.get_components(Identity, Stats, Upgrades):
+        for ent, (ident, stats, upgrades, trans) in self.world.get_components(Identity, Stats, Upgrades, Transform):
             if ident.faction == faction_id and ident.type == 'unit':
                 upgrades.dmg_level = level
                 stats.attack_dmg = UNIT_DMG + (UNIT_DMG_BONUS * level)
+                # Update visual shape
+                self.update_unit_visual(ent, upgrades, trans)
         
         return True
     
@@ -75,10 +106,12 @@ class UpgradeSystem(esper.Processor):
         self.sm.faction_upgrades[faction_id]['unit_cd'] += 1
         level = self.sm.faction_upgrades[faction_id]['unit_cd']
         
-        for ent, (ident, stats, upgrades) in self.world.get_components(Identity, Stats, Upgrades):
+        for ent, (ident, stats, upgrades, trans) in self.world.get_components(Identity, Stats, Upgrades, Transform):
             if ident.faction == faction_id and ident.type == 'unit':
                 upgrades.cd_level = level
                 stats.attack_cd = max(0.1, UNIT_CD + (UNIT_CD_BONUS * level))
+                # Update visual shape
+                self.update_unit_visual(ent, upgrades, trans)
         
         return True
     
@@ -92,16 +125,18 @@ class UpgradeSystem(esper.Processor):
         self.sm.faction_upgrades[faction_id]['unit_speed'] += 1
         level = self.sm.faction_upgrades[faction_id]['unit_speed']
         
-        for ent, (ident, mov, upgrades) in self.world.get_components(Identity, Movement, Upgrades):
+        for ent, (ident, mov, upgrades, trans) in self.world.get_components(Identity, Movement, Upgrades, Transform):
             if ident.faction == faction_id and ident.type == 'unit':
                 upgrades.speed_level = level
                 mov.speed = UNIT_SPEED + (UNIT_SPEED_BONUS * level)
+                # Update visual shape
+                self.update_unit_visual(ent, upgrades, trans)
         
         return True
     
     def upgrade_unit_range(self, faction_id):
         """Upgrade attack range for all units of a faction"""
-        cost = self.get_upgrade_cost(self.sm.faction_upgrades[faction_id]['unit_range'])
+        cost = self.get_range_upgrade_cost(self.sm.faction_upgrades[faction_id]['unit_range'])
         if self.sm.resources.get(faction_id, 0) < cost:
             return False
         
@@ -109,10 +144,12 @@ class UpgradeSystem(esper.Processor):
         self.sm.faction_upgrades[faction_id]['unit_range'] += 1
         level = self.sm.faction_upgrades[faction_id]['unit_range']
         
-        for ent, (ident, stats, upgrades) in self.world.get_components(Identity, Stats, Upgrades):
+        for ent, (ident, stats, upgrades, trans) in self.world.get_components(Identity, Stats, Upgrades, Transform):
             if ident.faction == faction_id and ident.type == 'unit':
                 upgrades.range_level = level
                 stats.attack_range = 15.0 + (UNIT_RANGE_BONUS * level)
+                # Update visual shape
+                self.update_unit_visual(ent, upgrades, trans)
         
         return True
     

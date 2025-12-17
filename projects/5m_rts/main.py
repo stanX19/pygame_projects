@@ -113,6 +113,24 @@ class SceneManager:
             mov = self.world.component_for_entity(ent, Movement)
             mov.speed = UNIT_SPEED + (UNIT_SPEED_BONUS * upgrades.speed_level)
             
+            # Update visual shape based on upgrades
+            if upgrades.hp_level > 0 or upgrades.dmg_level > 0 or upgrades.cd_level > 0 or upgrades.speed_level > 0 or upgrades.range_level > 0:
+                from shape_generator import generate_unit_shape
+                trans = self.world.component_for_entity(ent, Transform)
+                rend = self.world.component_for_entity(ent, Renderable)
+                
+                polygon_points = generate_unit_shape(
+                    trans.radius,
+                    upgrades.hp_level,
+                    upgrades.dmg_level,
+                    upgrades.cd_level,
+                    upgrades.speed_level,
+                    upgrades.range_level
+                )
+                
+                rend.shape = 'polygon'
+                rend.polygon_points = polygon_points
+            
         elif entity_type == 'castle':
             upgrades.hp_level = self.faction_upgrades[faction_id]['castle_hp']
             upgrades.dmg_level = self.faction_upgrades[faction_id]['castle_dmg']
@@ -424,15 +442,17 @@ def main():
     # Systems Registration
     from upgrade_system import UpgradeSystem
     from projectile_system import ProjectileSystem
+    from cleanup_system import CleanupSystem
     scene.world.add_processor(InputSystem(scene))
     scene.world.add_processor(AISystem(scene))
     scene.world.add_processor(MovementSystem(scene.spatial_hash))
     scene.world.add_processor(CombatSystem(scene.spatial_hash))
+    scene.world.add_processor(ProjectileSystem())  # Projectile system for ranged attacks
+    scene.world.add_processor(CleanupSystem())  # Process kill requests from combat/projectiles
     scene.world.add_processor(ResourceSystem())
     scene.world.add_processor(ConstructionSystem())
     scene.world.add_processor(WinConditionSystem(scene))
     scene.world.add_processor(UpgradeSystem(scene))  # Add upgrade system
-    scene.world.add_processor(ProjectileSystem())  # Projectile system for ranged attacks
     scene.world.add_processor(RenderSystem(window, font))
 
     # Initial Setup

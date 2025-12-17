@@ -32,11 +32,11 @@ FACTION_NEUTRAL = "neutral"
 MATCH_DURATION = 300  # 5 minutes in seconds
 SUDDEN_DEATH_TIME = 240 # 4 minutes
 STARTING_UNITS = 10
-STARTING_RESOURCES = 10
+STARTING_RESOURCES = 50
 
 # Unit Stats
 UNIT_RADIUS = 8
-UNIT_SPEED = 120.0
+UNIT_SPEED = 60.0
 UNIT_HP = 20
 UNIT_DMG = 4
 UNIT_CD = 1.0     # Attack cooldown in seconds
@@ -73,7 +73,7 @@ MAX_UPGRADE_LEVEL = 5
 UNIT_HP_BONUS = 5      # +5 HP per level
 UNIT_DMG_BONUS = 2     # +2 damage per level
 UNIT_CD_BONUS = -0.1   # -0.1s cooldown per level (faster attacks)
-UNIT_SPEED_BONUS = 20  # +20 speed per level
+UNIT_SPEED_BONUS = 10  # +10 speed per level
 UNIT_RANGE_BONUS = 30  # +30 range per level
 
 # Castle Upgrades (per level bonuses)

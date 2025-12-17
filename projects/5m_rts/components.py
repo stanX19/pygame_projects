@@ -19,8 +19,9 @@ class Velocity:
 @dataclasses.dataclass
 class Renderable:
     color: Tuple[int, int, int]
-    shape: str  # 'circle', 'square', 'triangle'
+    shape: str  # 'circle', 'square', 'triangle', 'polygon'
     layer: int = 1 # 0: terrain, 1: units, 2: ui
+    polygon_points: List[Tuple[float, float]] = None  # Custom polygon points for upgraded units
 
 @dataclasses.dataclass
 class Identity:
@@ -103,3 +104,9 @@ class Projectile:
     attacker_faction: str = None  # Faction that fired this projectile
     lifetime: float = 0.0  # Time alive
     max_lifetime: float = 2.0  # Max time before despawn
+
+@dataclasses.dataclass
+class KillRequest:
+    """Request to kill/capture an entity - processed by CleanupSystem"""
+    killer_faction: str  # Faction that killed this entity
+    killed_entity: int  # Entity ID that was killed
