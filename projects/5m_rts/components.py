@@ -44,6 +44,7 @@ class Movement:
     target_y: float = None
     path: List[Tuple[float, float]] = dataclasses.field(default_factory=list)
     moving: bool = False
+    is_castle_to_castle: bool = False  # For special movement speed
 
 @dataclasses.dataclass
 class Selectable:
@@ -72,3 +73,33 @@ class FactionInfo:
     id: str
     name: str
     color: Tuple[int, int, int]
+
+@dataclasses.dataclass
+class Upgrades:
+    """Track upgrade levels for individual entities (units, castles, resource points)"""
+    hp_level: int = 0
+    dmg_level: int = 0
+    cd_level: int = 0
+    speed_level: int = 0  # For units
+    rate_level: int = 0   # For resource points
+    range_level: int = 0  # For attack range
+
+@dataclasses.dataclass
+class FactionUpgrades:
+    """Track faction-wide upgrades"""
+    faction_id: str
+    castle_move_level: int = 0  # Castle-to-castle movement speed upgrade
+
+@dataclasses.dataclass
+class Projectile:
+    """Visual projectile for ranged attacks"""
+    start_x: float
+    start_y: float
+    target_x: float
+    target_y: float
+    speed: float = 500.0  # Pixels per second
+    damage: int = 0  # Damage to deal on impact
+    target_entity: int = None  # Target entity ID
+    attacker_faction: str = None  # Faction that fired this projectile
+    lifetime: float = 0.0  # Time alive
+    max_lifetime: float = 2.0  # Max time before despawn

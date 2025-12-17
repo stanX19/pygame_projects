@@ -32,7 +32,7 @@ FACTION_NEUTRAL = "neutral"
 MATCH_DURATION = 300  # 5 minutes in seconds
 SUDDEN_DEATH_TIME = 240 # 4 minutes
 STARTING_UNITS = 10
-STARTING_RESOURCES = 5
+STARTING_RESOURCES = 10
 
 # Unit Stats
 UNIT_RADIUS = 8
@@ -61,3 +61,29 @@ RES_GENERATION_RATE = 1.0 # Resource per second
 
 # Physics
 SEPARATION_FORCE = 500.0 # How hard units push away from each other
+
+# Upgrade System
+UPGRADE_COST_BASE = 5  # Base cost for first upgrade
+UPGRADE_COST_MULTIPLIER = 1.5  # Cost multiplier per level
+
+# Max upgrade levels
+MAX_UPGRADE_LEVEL = 5
+
+# Unit Upgrades (per level bonuses)
+UNIT_HP_BONUS = 5      # +5 HP per level
+UNIT_DMG_BONUS = 2     # +2 damage per level
+UNIT_CD_BONUS = -0.1   # -0.1s cooldown per level (faster attacks)
+UNIT_SPEED_BONUS = 20  # +20 speed per level
+UNIT_RANGE_BONUS = 30  # +30 range per level
+
+# Castle Upgrades (per level bonuses)
+CASTLE_HP_BONUS = 100   # +100 HP per level
+CASTLE_DMG_BONUS = 5    # +5 damage per level
+CASTLE_CD_BONUS = -0.05 # -0.05s cooldown per level
+
+# Resource Point Upgrades
+RESOURCE_RATE_BONUS = 0.5  # +0.5 res/sec per level
+
+# Castle-to-Castle Movement (global per faction)
+CASTLE_MOVE_SPEED_MULTIPLIER = 3.0  # Base speed multiplier
+CASTLE_MOVE_UPGRADE_BONUS = 0.5     # +0.5x multiplier per level

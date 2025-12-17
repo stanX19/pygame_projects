@@ -36,6 +36,9 @@ class SceneManager:
         self.cols = (SCREEN_WIDTH // TILE_SIZE) + 1
         self.rows = (SCREEN_HEIGHT // TILE_SIZE) + 1
         self.grid = [[0 for _ in range(self.cols)] for _ in range(self.rows)]
+        
+        # Upgrade tracking per faction
+        self.faction_upgrades = {}  # faction_id -> {upgrade_type: level}
 
     def mark_obstacle(self, x, y, radius):
         """Mark all grid cells covered by an obstacle with given radius."""
@@ -69,6 +72,66 @@ class SceneManager:
             if info.id == faction_id:
                 return info.color
         return COLOR_NEUTRAL
+    
+    def init_faction_upgrades(self, faction_id):
+        """Initialize upgrade tracking for a faction"""
+        self.faction_upgrades[faction_id] = {
+            'unit_hp': 0,
+            'unit_dmg': 0,
+            'unit_cd': 0,
+            'unit_speed': 0,
+            'unit_range': 0,
+            'castle_hp': 0,
+            'castle_dmg': 0,
+            'castle_cd': 0,
+            'resource_rate': 0,
+            'castle_move': 0
+        }
+    
+    def apply_faction_upgrades_to_entity(self, ent, faction_id, entity_type):
+        """Apply current faction upgrade levels to a newly created entity"""
+        if faction_id not in self.faction_upgrades:
+            return
+        
+        upgrades = Upgrades()
+        
+        if entity_type == 'unit':
+            upgrades.hp_level = self.faction_upgrades[faction_id]['unit_hp']
+            upgrades.dmg_level = self.faction_upgrades[faction_id]['unit_dmg']
+            upgrades.cd_level = self.faction_upgrades[faction_id]['unit_cd']
+            upgrades.speed_level = self.faction_upgrades[faction_id]['unit_speed']
+            upgrades.range_level = self.faction_upgrades[faction_id]['unit_range']
+            
+            # Apply bonuses to stats
+            stats = self.world.component_for_entity(ent, Stats)
+            stats.max_hp = UNIT_HP + (UNIT_HP_BONUS * upgrades.hp_level)
+            stats.hp = stats.max_hp
+            stats.attack_dmg = UNIT_DMG + (UNIT_DMG_BONUS * upgrades.dmg_level)
+            stats.attack_cd = max(0.1, UNIT_CD + (UNIT_CD_BONUS * upgrades.cd_level))
+            stats.attack_range = 15.0 + (UNIT_RANGE_BONUS * upgrades.range_level)
+            
+            mov = self.world.component_for_entity(ent, Movement)
+            mov.speed = UNIT_SPEED + (UNIT_SPEED_BONUS * upgrades.speed_level)
+            
+        elif entity_type == 'castle':
+            upgrades.hp_level = self.faction_upgrades[faction_id]['castle_hp']
+            upgrades.dmg_level = self.faction_upgrades[faction_id]['castle_dmg']
+            upgrades.cd_level = self.faction_upgrades[faction_id]['castle_cd']
+            
+            stats = self.world.component_for_entity(ent, Stats)
+            stats.max_hp = CASTLE_HP + (CASTLE_HP_BONUS * upgrades.hp_level)
+            stats.hp = stats.max_hp
+            stats.attack_dmg = CASTLE_DMG + (CASTLE_DMG_BONUS * upgrades.dmg_level)
+            stats.attack_cd = max(0.1, CASTLE_CD + (CASTLE_CD_BONUS * upgrades.cd_level))
+            
+        elif entity_type == 'resource':
+            upgrades.rate_level = self.faction_upgrades[faction_id]['resource_rate']
+            
+            if self.world.has_component(ent, ResourceGenerator):
+                gen = self.world.component_for_entity(ent, ResourceGenerator)
+                gen.rate = RES_GENERATION_RATE + (RESOURCE_RATE_BONUS * upgrades.rate_level)
+        
+        self.world.add_component(ent, upgrades)
 
     def create_entity(self, type_name, x, y, faction_id):
         if type_name == 'unit':
@@ -83,6 +146,8 @@ class SceneManager:
             )
             if faction_id == self.player_faction_id:
                 self.world.add_component(ent, Selectable())
+            # Apply current faction upgrades
+            self.apply_faction_upgrades_to_entity(ent, faction_id, 'unit')
             return ent
 
         elif type_name == 'castle':
@@ -95,6 +160,8 @@ class SceneManager:
                 ResourceGenerator(rate=RES_GENERATION_RATE) # Castle generates base resources
             )
             self.mark_obstacle(x, y, CASTLE_RADIUS)
+            # Apply current faction upgrades
+            self.apply_faction_upgrades_to_entity(ent, faction_id, 'castle')
             return ent
 
         elif type_name == 'resource_point':
@@ -135,6 +202,24 @@ class SceneManager:
             off_y = random.uniform(-20, 20)
             self.create_entity('unit', x + off_x, y + off_y, faction_id)
             self.resources[faction_id] -= UNIT_COST
+    
+    def spawn_projectile(self, from_x, from_y, to_x, to_y, damage, target_ent, color, attacker_faction):
+        """Spawn a visual projectile for ranged attacks"""
+        ent = self.world.create_entity(
+            Transform(x=from_x, y=from_y, radius=3),
+            Renderable(color=color, shape='circle', layer=2),  # Layer 2: above units
+            Projectile(
+                start_x=from_x,
+                start_y=from_y,
+                target_x=to_x,
+                target_y=to_y,
+                damage=damage,
+                target_entity=target_ent,
+                attacker_faction=attacker_faction,
+                speed=500.0
+            )
+        )
+        return ent
 
     def get_path(self, start_x, start_y, end_x, end_y):
         """Calculate pathfinding from start to end, avoiding obstacles."""
@@ -337,6 +422,8 @@ def main():
     scene = SceneManager()
 
     # Systems Registration
+    from upgrade_system import UpgradeSystem
+    from projectile_system import ProjectileSystem
     scene.world.add_processor(InputSystem(scene))
     scene.world.add_processor(AISystem(scene))
     scene.world.add_processor(MovementSystem(scene.spatial_hash))
@@ -344,6 +431,8 @@ def main():
     scene.world.add_processor(ResourceSystem())
     scene.world.add_processor(ConstructionSystem())
     scene.world.add_processor(WinConditionSystem(scene))
+    scene.world.add_processor(UpgradeSystem(scene))  # Add upgrade system
+    scene.world.add_processor(ProjectileSystem())  # Projectile system for ranged attacks
     scene.world.add_processor(RenderSystem(window, font))
 
     # Initial Setup
@@ -359,12 +448,18 @@ def main():
     
     scene.world.create_entity(FactionInfo(id=FACTION_PLAYER, name="PLAYER", color=COLOR_PLAYER))
     scene.world.create_entity(FactionInfo(id=FACTION_NEUTRAL, name="NEUTRAL", color=COLOR_NEUTRAL))
+    
+    # Initialize faction upgrades for player
+    scene.init_faction_upgrades(FACTION_PLAYER)
+    
     for i, f in enumerate(bot_factions):
         c = BOT_COLORS[i % len(BOT_COLORS)]
         scene.world.create_entity(FactionInfo(id=f, name=f"AI-{i+1}", color=c))
         
         # Init resources for bots
         scene.resources[f] = STARTING_RESOURCES
+        # Init upgrades for bots
+        scene.init_faction_upgrades(f)
 
     # Battle Royale Setup (4 Corners)
     # Player: Top Left

@@ -33,6 +33,11 @@ class InputSystem(esper.Processor):
         for event in events:
             if event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1:  # Left Click
+                    # Check for upgrade button clicks first
+                    clicked_upgrade = self._check_upgrade_buttons(mouse_pos)
+                    if clicked_upgrade:
+                        continue  # Skip other click handling
+                    
                     self.selecting = True
                     self.drag_start = mouse_pos
                     self.drag_current = mouse_pos
@@ -91,6 +96,40 @@ class InputSystem(esper.Processor):
                     self.holding_build = True  # Prevent spamming
             else:
                 self.hold_timer = 0.0
+    
+    def _check_upgrade_buttons(self, mouse_pos):
+        """Check if player clicked on an upgrade button. Returns True if clicked."""
+        # Get stored button rectangles from scene manager (set during rendering)
+        if not hasattr(self.scene_manager, 'upgrade_buttons'):
+            return False
+        
+        # Get upgrade system
+        upgrade_sys = None
+        for processor in self.world._processors:
+            if processor.__class__.__name__ == 'UpgradeSystem':
+                upgrade_sys = processor
+                break
+        
+        if not upgrade_sys:
+            return False
+        
+        faction_id = self.scene_manager.player_faction_id
+        
+        # Check each button
+        for button_rect, method_name, upgrade_key in self.scene_manager.upgrade_buttons:
+            if button_rect.collidepoint(mouse_pos):
+                # Try to purchase upgrade
+                method = getattr(upgrade_sys, method_name)
+                success = method(faction_id)
+                
+                if success:
+                    self.scene_manager.show_message(f"Upgraded {upgrade_key.replace('_', ' ').title()}!", (0, 255, 0))
+                else:
+                    self.scene_manager.show_message("Not enough resources!", (255, 100, 100))
+                
+                return True
+        
+        return False
 
     def _finish_selection(self):
         # Calculate selection rect
@@ -104,10 +143,16 @@ class InputSystem(esper.Processor):
             sel.selected = False
 
         # Select units inside rect
+        has_selection = False
         for ent, (trans, ident, sel) in self.world.get_components(Transform, Identity, Selectable):
             if ident.faction == self.scene_manager.player_faction_id and ident.type == 'unit':
                 if left < trans.x < right and top < trans.y < bottom:
                     sel.selected = True
+                    has_selection = True
+        
+        # Show upgrade panel if units were selected
+        if has_selection:
+            self.scene_manager.upgrade_panel_show_time = self.scene_manager.game_time
 
     def _start_construction(self):
         # Check if we have > 10 selected units
@@ -361,7 +406,26 @@ class CombatSystem(esper.Processor):
                 if stats.current_cd <= 0:
                     enemy_ident = self.world.component_for_entity(closest_enemy, Identity)
                     enemy_stats = self.world.component_for_entity(closest_enemy, Stats)
-                    enemy_stats.hp -= stats.attack_dmg
+                    enemy_trans = self.world.component_for_entity(closest_enemy, Transform)
+                    
+                    # Check if this is a ranged attack (range > 20)
+                    is_ranged = stats.attack_range > 20
+                    
+                    if is_ranged:
+                        # Spawn projectile for ranged attack
+                        attacker_color = self.world.scene_manager.get_faction_color(ident.faction)
+                        self.world.scene_manager.spawn_projectile(
+                            trans.x, trans.y,
+                            enemy_trans.x, enemy_trans.y,
+                            stats.attack_dmg,
+                            closest_enemy,
+                            attacker_color,
+                            ident.faction  # Pass attacker faction
+                        )
+                    else:
+                        # Melee attack - instant damage
+                        enemy_stats.hp -= stats.attack_dmg
+                    
                     stats.current_cd = stats.attack_cd
 
                     if enemy_stats.hp <= 0:
@@ -443,16 +507,25 @@ class CombatSystem(esper.Processor):
                         if dist < stats.attack_range + t_trans.radius:
                             enemy_units.append(target_id)
             
+            
             # Attack random enemy unit
             if enemy_units and stats.current_cd <= 0:
                 target = random.choice(enemy_units)
                 target_stats = self.world.component_for_entity(target, Stats)
-                target_stats.hp -= stats.attack_dmg
-                stats.current_cd = stats.attack_cd
+                target_trans = self.world.component_for_entity(target, Transform)
                 
-                if target_stats.hp <= 0:
-                    target_stats.dead = True
-                    self.world.delete_entity(target)
+                # Castles/resources always use ranged attacks (spawn projectile)
+                attacker_color = self.world.scene_manager.get_faction_color(ident.faction)
+                self.world.scene_manager.spawn_projectile(
+                    trans.x, trans.y,
+                    target_trans.x, target_trans.y,
+                    stats.attack_dmg,
+                    target,
+                    attacker_color,
+                    ident.faction  # Pass attacker faction
+                )
+                
+                stats.current_cd = stats.attack_cd
 
 
 class ResourceSystem(esper.Processor):
@@ -522,8 +595,176 @@ class RenderSystem(esper.Processor):
     def __init__(self, window, font):
         self.window = window
         self.font = font
+    
+    def _draw_upgrade_panel(self, sm):
+        """Draw vertical upgrade panel at fixed position, hide when mouse moves away"""
+        # Get upgrade system
+        upgrade_sys = None
+        for processor in self.world._processors:
+            if processor.__class__.__name__ == 'UpgradeSystem':
+                upgrade_sys = processor
+                break
+        
+        if not upgrade_sys:
+            return
+        
+        # Check what's selected
+        selected_type = None
+        has_selection = False
+        
+        # Check for selected units
+        for ent, sel in self.world.get_component(Selectable):
+            if sel.selected:
+                has_selection = True
+                ident = self.world.component_for_entity(ent, Identity)
+                if ident.type == 'unit':
+                    selected_type = 'unit'
+                    break
+        
+        # If nothing selected, don't show panel
+        if not has_selection:
+            # Clear saved position
+            if hasattr(sm, 'upgrade_panel_position'):
+                delattr(sm, 'upgrade_panel_position')
+            return
+        
+        # Get mouse position
+        mouse_pos = pygame.mouse.get_pos()
+        
+        # Panel sizing - vertical layout
+        button_width = 180
+        button_height = 35
+        spacing_y = 38
+        
+        # Determine what upgrades to show
+        upgrade_defs = [
+            ('Unit HP', 'unit_hp', 'upgrade_unit_hp', (100, 150, 255)),
+            ('Unit Damage', 'unit_dmg', 'upgrade_unit_dmg', (255, 100, 100)),
+            ('Attack Speed', 'unit_cd', 'upgrade_unit_cd', (150, 255, 150)),
+            ('Attack Range', 'unit_range', 'upgrade_unit_range', (255, 150, 255)),
+            ('Move Speed', 'unit_speed', 'upgrade_unit_speed', (255, 200, 100)),
+        ]
+        
+        # Calculate panel dimensions
+        panel_width = button_width + 20
+        panel_height = len(upgrade_defs) * spacing_y + 35
+        
+        # Use saved position if available, otherwise calculate new position
+        if not hasattr(sm, 'upgrade_panel_position'):
+            # First time showing - position at mouse with offset
+            panel_x = mouse_pos[0] + 10
+            panel_y = mouse_pos[1] + 10
+            
+            # Keep within screen bounds
+            if panel_x + panel_width > SCREEN_WIDTH:
+                panel_x = mouse_pos[0] - panel_width - 10
+            if panel_y + panel_height > SCREEN_HEIGHT:
+                panel_y = mouse_pos[1] - panel_height - 10
+            
+            panel_x = max(5, min(SCREEN_WIDTH - panel_width - 5, panel_x))
+            panel_y = max(5, min(SCREEN_HEIGHT - panel_height - 5, panel_y))
+            
+            # Save position
+            sm.upgrade_panel_position = (panel_x, panel_y)
+        else:
+            # Use saved position (menu stays in place)
+            panel_x, panel_y = sm.upgrade_panel_position
+        
+        # Check if mouse is hovering over the panel area
+        panel_rect = pygame.Rect(panel_x, panel_y, panel_width, panel_height)
+        mouse_hovering = panel_rect.collidepoint(mouse_pos)
+        
+        # Only show if hovering OR just selected (within 0.5 seconds)
+        if not mouse_hovering:
+            # Check if recently selected
+            if not hasattr(sm, 'upgrade_panel_show_time'):
+                return
+            if sm.game_time - sm.upgrade_panel_show_time > 0.5:
+                # Clear position when hiding
+                if hasattr(sm, 'upgrade_panel_position'):
+                    delattr(sm, 'upgrade_panel_position')
+                return
+        else:
+            # Update show time while hovering
+            sm.upgrade_panel_show_time = sm.game_time
+        
+        # Panel background
+        overlay = pygame.Surface((panel_rect.width, panel_rect.height), pygame.SRCALPHA)
+        overlay.fill((10, 10, 20, 240))
+        self.window.blit(overlay, panel_rect)
+        pygame.draw.rect(self.window, (120, 120, 180), panel_rect, 2)
+        
+        # Title
+        title_surf = pygame.font.SysFont("Arial", 13, bold=True).render("UPGRADES", True, (180, 180, 255))
+        self.window.blit(title_surf, (panel_x + 10, panel_y + 8))
+        
+        # Get player faction info
+        faction_id = sm.player_faction_id
+        resources = sm.resources.get(faction_id, 0)
+        upgrades = sm.faction_upgrades.get(faction_id, {})
+        
+        # Draw upgrade buttons vertically
+        for i, (label, key, method_name, color) in enumerate(upgrade_defs):
+            button_x = panel_x + 10
+            button_y = panel_y + 30 + i * spacing_y
+            current_level = upgrades.get(key, 0)
+            cost = upgrade_sys.get_upgrade_cost(current_level)
+            
+            # Button rectangle
+            button_rect = pygame.Rect(button_x, button_y, button_width, button_height)
+            
+            # Store button info for click detection
+            if not hasattr(sm, 'upgrade_buttons'):
+                sm.upgrade_buttons = []
+            sm.upgrade_buttons.append((button_rect, method_name, key))
+            
+            # Check if mouse is over this button
+            button_hover = button_rect.collidepoint(mouse_pos)
+            
+            # Button color based on affordability and hover
+            if current_level >= MAX_UPGRADE_LEVEL:
+                btn_color = (40, 40, 40)
+                text_color = (120, 120, 120)
+            elif resources >= cost:
+                if button_hover:
+                    btn_color = (0, 150, 0)  # Brighter green on hover
+                else:
+                    btn_color = (0, 100, 0)
+                text_color = (255, 255, 255)
+            else:
+                btn_color = (80, 40, 40)
+                text_color = (160, 160, 160)
+            
+            # Draw button
+            pygame.draw.rect(self.window, btn_color, button_rect)
+            if button_hover and current_level < MAX_UPGRADE_LEVEL:
+                pygame.draw.rect(self.window, (255, 255, 255), button_rect, 2)
+            else:
+                pygame.draw.rect(self.window, color, button_rect, 2)
+            
+            # Draw text
+            if current_level >= MAX_UPGRADE_LEVEL:
+                main_text = f"{label} [MAX]"
+                cost_text = ""
+            else:
+                main_text = f"{label} Lv{current_level}"
+                cost_text = f"Cost: ${cost}"
+            
+            # Main label
+            text_surf = pygame.font.SysFont("Arial", 13, bold=True).render(main_text, True, text_color)
+            self.window.blit(text_surf, (button_x + 8, button_y + 6))
+            
+            # Cost text (if not maxed)
+            if cost_text:
+                cost_color = (255, 215, 0) if resources >= cost else (150, 100, 100)
+                cost_surf = pygame.font.SysFont("Arial", 11).render(cost_text, True, cost_color)
+                self.window.blit(cost_surf, (button_x + 8, button_y + 20))
 
     def process(self):
+        # Clear upgrade buttons from previous frame
+        sm = self.world.scene_manager
+        sm.upgrade_buttons = []
+        
         self.window.fill(COLOR_BG)
 
         # 2. Draw Entities
@@ -633,6 +874,9 @@ class RenderSystem(esper.Processor):
         self.window.blit(surf_time, (10, 10))
         self.window.blit(surf_res, (10, 40))
         self.window.blit(surf_sd, (SCREEN_WIDTH // 2 - 100, 10))
+        
+        # Draw Upgrade Panel
+        self._draw_upgrade_panel(sm)
 
         # Draw Flash Message
         if sm.message_timer > 0:
@@ -687,6 +931,7 @@ class AISystem(esper.Processor):
         self.sm = scene_manager
         self.timer = 0
         self.expansion_timer = 0
+        self.upgrade_timer = 0  # AI upgrade decision timer
 
     def _count_nearby_allies(self, x, y, faction):
         count = 0 
@@ -778,15 +1023,113 @@ class AISystem(esper.Processor):
                      self._execute_build(faction, build_x, build_y, nearby_units[:CASTLE_BUILD_REQ])
                      return
 
+    def _try_upgrades(self, faction):
+        """AI decision logic for purchasing upgrades"""
+        resources = self.sm.resources.get(faction, 0)
+        
+        # Don't upgrade if low on resources
+        if resources < 15:
+            return
+        
+        # Get upgrade system
+        upgrade_sys = None
+        for processor in self.world._processors:
+            if processor.__class__.__name__ == 'UpgradeSystem':
+                upgrade_sys = processor
+                break
+        
+        if not upgrade_sys:
+            return
+        
+        upgrades = self.sm.faction_upgrades[faction]
+        
+        # Strategy: Prioritize based on game time and current situation
+        game_time = self.sm.game_time
+        
+        # Early game (0-90s): Focus on unit damage and HP
+        if game_time < 90:
+            # Upgrade unit damage first (offense)
+            if upgrades['unit_dmg'] < 2 and resources >= upgrade_sys.get_upgrade_cost(upgrades['unit_dmg']):
+                if upgrade_sys.upgrade_unit_dmg(faction):
+                    return
+            # Then unit HP (survivability)
+            if upgrades['unit_hp'] < 2 and resources >= upgrade_sys.get_upgrade_cost(upgrades['unit_hp']):
+                if upgrade_sys.upgrade_unit_hp(faction):
+                    return
+        
+        # Mid game (90-180s): Balance offense and castle defense
+        elif game_time < 180:
+            # Upgrade castle HP (defend base)
+            if upgrades['castle_hp'] < 2 and resources >= upgrade_sys.get_upgrade_cost(upgrades['castle_hp']):
+                if upgrade_sys.upgrade_castle_hp(faction):
+                    return
+            # Unit speed for better positioning
+            if upgrades['unit_speed'] < 1 and resources >= upgrade_sys.get_upgrade_cost(upgrades['unit_speed']):
+                if upgrade_sys.upgrade_unit_speed(faction):
+                    return
+            # Castle damage
+            if upgrades['castle_dmg'] < 2 and resources >= upgrade_sys.get_upgrade_cost(upgrades['castle_dmg']):
+                if upgrade_sys.upgrade_castle_dmg(faction):
+                    return
+        
+        # Late game (180s+): Max out everything important
+        else:
+            # Count owned resource points
+            res_points = 0
+            for ent, ident in self.world.get_component(Identity):
+                if ident.faction == faction and ident.type == 'resource':
+                    res_points += 1
+            
+            # If we have resource points, upgrade their rate
+            if res_points > 0 and upgrades['resource_rate'] < 2:
+                cost = upgrade_sys.get_upgrade_cost(upgrades['resource_rate'])
+                if resources >= cost and upgrade_sys.upgrade_resource_rate(faction):
+                    return
+            
+            # Castle-to-castle movement for fast reinforcement
+            if upgrades['castle_move'] < 1:
+                cost = upgrade_sys.get_upgrade_cost(upgrades['castle_move'])
+                if resources >= cost and upgrade_sys.upgrade_castle_move(faction):
+                    return
+            
+            # Max out unit upgrades
+            cheapest_upgrade = None
+            cheapest_cost = float('inf')
+            
+            for upgrade_type in ['unit_hp', 'unit_dmg', 'unit_cd', 'unit_speed']:
+                if upgrades[upgrade_type] < MAX_UPGRADE_LEVEL:
+                    cost = upgrade_sys.get_upgrade_cost(upgrades[upgrade_type])
+                    if cost < cheapest_cost and resources >= cost:
+                        cheapest_cost = cost
+                        cheapest_upgrade = upgrade_type
+            
+            if cheapest_upgrade:
+                if cheapest_upgrade == 'unit_hp':
+                    upgrade_sys.upgrade_unit_hp(faction)
+                elif cheapest_upgrade == 'unit_dmg':
+                    upgrade_sys.upgrade_unit_dmg(faction)
+                elif cheapest_upgrade == 'unit_cd':
+                    upgrade_sys.upgrade_unit_cd(faction)
+                elif cheapest_upgrade == 'unit_speed':
+                    upgrade_sys.upgrade_unit_speed(faction)
+                return
+
     def process(self):
         dt = self.sm.dt
         self.timer += dt
         self.expansion_timer += dt
+        self.upgrade_timer += dt
 
         check_expansion = False
         if self.expansion_timer > 5.0:
             self.expansion_timer = 0
             check_expansion = True
+        
+        # Check upgrades every 10 seconds
+        check_upgrades = False
+        if self.upgrade_timer > 10.0:
+            self.upgrade_timer = 0
+            check_upgrades = True
 
         if self.timer > 0.2:
             self.timer = 0
@@ -819,6 +1162,10 @@ class AISystem(esper.Processor):
                 if check_expansion and ai.auto_spawn and faction not in processed_factions:
                     processed_factions.add(faction)
                     self._try_expansion(faction)
+                
+                # Upgrade Check (for AI factions)
+                if check_upgrades and faction != self.sm.player_faction_id:
+                    self._try_upgrades(faction)
                 
                 # A. Surplus / Defense Spawning
                 res = self.sm.resources.get(faction, 0)
