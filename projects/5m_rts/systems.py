@@ -253,8 +253,14 @@ class MovementSystem(esper.Processor):
 
                 try:
                     other_trans = self.world.component_for_entity(other_id, Transform)
+                    other_ident = self.world.component_for_entity(other_id, Identity)
                 except KeyError:
                     continue  # Entity might have died mid-frame
+
+                # Only separate from other units (allow overlapping castles/resources)
+                # This prevents units from getting stuck when pathfinding through friendly structures
+                if other_ident.type != 'unit':
+                    continue
 
                 dx = trans.x - other_trans.x
                 dy = trans.y - other_trans.y
