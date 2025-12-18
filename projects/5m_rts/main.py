@@ -28,6 +28,7 @@ class SceneManager:
         self.message = ""
         self.message_color = (255, 255, 255)
         self.message_timer = 0.0
+        self.floating_messages = []  # List of [text, x, y, duration, color]
         
         # Utils
         self.spatial_hash = SpatialHash(TILE_SIZE)
@@ -211,12 +212,44 @@ class SceneManager:
         if faction_id is None:
             faction_id = self.player_faction_id
         if self.resources[faction_id] >= UNIT_COST:
+            # Check Unit Cap
+            active_factions = self.get_active_faction_count()
+            current_units = self.get_faction_unit_count(faction_id)
+            
+            # Avoid divide by zero
+            limit = MAX_UNITS // max(1, active_factions)
+            
+            if current_units >= limit:
+                return False
+                
             # Spawn slightly offset
             import random
             off_x = random.uniform(-20, 20)
             off_y = random.uniform(-20, 20)
             self.create_entity('unit', x + off_x, y + off_y, faction_id)
             self.resources[faction_id] -= UNIT_COST
+            return True
+        return False
+
+    def get_active_faction_count(self):
+        """Count factions that have at least one unit or castle."""
+        active_factions = set()
+        for ent, ident in self.world.get_component(Identity):
+            if ident.faction != FACTION_NEUTRAL and ident.type in ['unit', 'castle']:
+                active_factions.add(ident.faction)
+        return len(active_factions)
+
+    def get_faction_unit_count(self, faction_id):
+        """Count units for a specific faction."""
+        count = 0
+        for ent, ident in self.world.get_component(Identity):
+            if ident.faction == faction_id and ident.type == 'unit':
+                count += 1
+        return count
+
+    def add_floating_message(self, text, x, y, color=(255, 50, 50)):
+        """Add a temporary message at a specific position."""
+        self.floating_messages.append([text, x, y, 1.0, color])
     
     def spawn_projectile(self, from_x, from_y, to_x, to_y, damage, target_ent, color, attacker_faction):
         """Spawn a visual projectile for ranged attacks"""

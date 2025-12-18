@@ -53,8 +53,14 @@ class InputSystem(esper.Processor):
                                 res = self.scene_manager.resources.get(self.scene_manager.player_faction_id, 0)
                                 burst_count = 1 + int(res / 10)
                                 burst_count = min(burst_count, 10)
+                                success = True
                                 for _ in range(burst_count):
-                                    self.scene_manager.spawn_unit(trans.x, trans.y)
+                                    if not self.scene_manager.spawn_unit(trans.x, trans.y):
+                                        success = False
+                                        break
+                                
+                                if not success:
+                                    self.scene_manager.add_floating_message("UNIT CAP REACHED", mouse_pos[0], mouse_pos[1] - 30)
                                 
                                 clicked_castle = True
                                 self.selecting = False  # Cancel selection if clicking castle
@@ -1037,6 +1043,25 @@ class RenderSystem(esper.Processor):
             overlay.fill((0, 0, 0, 150))
             self.window.blit(overlay, bg_rect)
             self.window.blit(msg_surf, msg_rect)
+
+        # Draw Floating Messages
+        for msg in sm.floating_messages[:]:
+            text, x, y, timer, color = msg
+            msg[3] -= sm.dt  # Decrement timer
+            
+            if msg[3] <= 0:
+                sm.floating_messages.remove(msg)
+                continue
+                
+            y_pos = y - (1.0 - msg[3]) * 30  # Float up
+            
+            surf = self.font.render(text, True, color)
+            # Alpha fading manually (blit with special flags or just color fade if simple)
+            # Simple approach: Don't fade alpha, just remove. Or use special blit.
+            # Pygame font render doesn't support alpha directly on surface without set_alpha?
+            # It does.
+            surf.set_alpha(int(msg[3] * 255))
+            self.window.blit(surf, (x, int(y_pos)))
 
         # Game Over Screen
         if sm.game_over:

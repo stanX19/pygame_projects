@@ -34,6 +34,7 @@ COLOR_TEXT = (255, 255, 255)
 FACTION_PLAYER = str(uuid.uuid4())[:8]
 FACTION_NEUTRAL = "neutral"
 NUM_PLAYERS = 6
+MAX_UNITS = 300
 
 # Bot Colors (Hardcoded distinct colors to avoid Player's Royal Blue)
 BOT_COLORS = [
@@ -41,8 +42,7 @@ BOT_COLORS = [
     (255, 140, 0),    # Dark Orange
     (138, 43, 226),   # Blue Violet (distinct from Royal Blue)
     (0, 128, 128),    # Teal
-    (155, 215, 0),    # Gold
-    (255, 20, 147),   # Deep Pink
+    (205, 20, 105),   # Deep Pink
     (139, 69, 19),    # Saddle Brown (Mountain color, but acceptable for units)
     (0, 255, 255),    # Cyan
     (50, 205, 50),    # Lime Green
