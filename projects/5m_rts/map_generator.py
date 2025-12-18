@@ -26,18 +26,18 @@ class TileMapGenerator:
         self.castles_placed = []
         self.resources_placed = []
     
-    def generate_map(self, num_players=4, max_attempts=100):
-        """Generate map using backtracking CSP"""
+    def generate_map(self, num_players=4, max_attempts=1000):
+        """Generate map using backtracking CSP with fresh randomization each attempt"""
         self.num_castles_needed = num_players
         self.num_resources_needed = num_players * 2
         
         for attempt in range(max_attempts):
             print(f"Attempt {attempt + 1}...")
             
-            # Initialize CSP
+            # Initialize CSP with fresh state (randomization happens in backtracking)
             self._init_csp()
             
-            # Run backtracking search
+            # Run backtracking search with fresh random candidate ordering
             if self._backtrack_search():
                 # Success! Convert and validate
                 obstacle_tiles = self._convert_special_tiles()

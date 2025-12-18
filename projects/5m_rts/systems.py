@@ -768,6 +768,29 @@ class RenderSystem(esper.Processor):
                 translated_points = [(int(trans.x + px), int(trans.y + py)) for px, py in rend.polygon_points]
                 if len(translated_points) >= 3:
                     pygame.draw.polygon(self.window, color, translated_points)
+            elif rend.shape == 'hexagon':
+                # Regular hexagon (for castles) with inner hexagon
+                import math
+                # Outer hexagon
+                pts = []
+                for i in range(6):
+                    angle = math.pi / 3 * i - math.pi / 6  # Start from top
+                    px = trans.x + trans.radius * math.cos(angle)
+                    py = trans.y + trans.radius * math.sin(angle)
+                    pts.append((int(px), int(py)))
+                pygame.draw.polygon(self.window, color, pts)
+                
+                # Inner hexagon (smaller, brighter)
+                inner_pts = []
+                inner_radius = trans.radius * 0.6  # 60% of original size
+                # Make brighter by adding to color components (capped at 255)
+                brighter_color = tuple(min(255, int(c * 1.4)) for c in color)
+                for i in range(6):
+                    angle = math.pi / 3 * i - math.pi / 6
+                    px = trans.x + inner_radius * math.cos(angle)
+                    py = trans.y + inner_radius * math.sin(angle)
+                    inner_pts.append((int(px), int(py)))
+                pygame.draw.polygon(self.window, brighter_color, inner_pts)
             elif rend.shape == 'square':
                 rect = pygame.Rect(trans.x - trans.radius, trans.y - trans.radius, trans.radius * 2, trans.radius * 2)
                 pygame.draw.rect(self.window, color, rect)
@@ -779,6 +802,48 @@ class RenderSystem(esper.Processor):
                     (trans.x + trans.radius, trans.y + trans.radius)
                 ]
                 pygame.draw.polygon(self.window, color, pts)
+            elif rend.shape == 'stacked_triangles':
+                # Multiple overlapping triangles with varying darkness (for mountains)
+                import math
+                base_color = color
+                # Draw 3 triangles with different sizes and darkness
+                for i in range(3):
+                    scale = 1.0 - (i * 0.15)  # Smaller triangles on top
+                    darkness = 1.0 - (i * 0.3)  # Darker as we go back
+                    triangle_color = tuple(int(c * darkness) for c in base_color)
+                    offset_y = i * 4  # Offset each triangle down slightly
+                    r = trans.radius * scale
+                    pts = [
+                        (trans.x, trans.y - r + offset_y),
+                        (trans.x - r, trans.y + r + offset_y),
+                        (trans.x + r, trans.y + r + offset_y)
+                    ]
+                    pygame.draw.polygon(self.window, triangle_color, pts)
+            elif rend.shape == 'resource_grid':
+                # Orange/faction-colored square with 3x3 yellow inner squares (for resource points)
+                # Use the entity's color (changes when captured)
+                outer_color = color  # Use dynamic color from entity
+                
+                # Outer square
+                outer_rect = pygame.Rect(trans.x - trans.radius, trans.y - trans.radius, 
+                                        trans.radius * 2, trans.radius * 2)
+                pygame.draw.rect(self.window, outer_color, outer_rect)
+                
+                # 3x3 grid of smaller yellow squares with gaps
+                grid_size = 3
+                square_size = (trans.radius * 2 * 0.7) / grid_size  # 70% of outer size divided by 3
+                gap = square_size * 0.2  # 20% gap
+                actual_square = square_size - gap
+                
+                start_x = trans.x - (grid_size * square_size) / 2 + gap / 2
+                start_y = trans.y - (grid_size * square_size) / 2 + gap / 2
+                
+                for row in range(grid_size):
+                    for col in range(grid_size):
+                        sx = start_x + col * square_size
+                        sy = start_y + row * square_size
+                        small_rect = pygame.Rect(sx, sy, actual_square, actual_square)
+                        pygame.draw.rect(self.window, (255, 215, 0), small_rect)  # Yellow
 
             # Draw HP bar for damaged units
             try:

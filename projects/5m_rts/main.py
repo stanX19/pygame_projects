@@ -172,7 +172,7 @@ class SceneManager:
             color = self.get_faction_color(faction_id)
             ent = self.world.create_entity(
                 Transform(x=x, y=y, radius=CASTLE_RADIUS),
-                Renderable(color=color, shape='square', layer=0),
+                Renderable(color=color, shape='hexagon', layer=0),
                 Identity(faction=faction_id, type='castle'),
                 Stats(hp=CASTLE_HP, max_hp=CASTLE_HP, attack_dmg=CASTLE_DMG, attack_range=CASTLE_RANGE, attack_cd=CASTLE_CD),
                 ResourceGenerator(rate=RES_GENERATION_RATE) # Castle generates base resources
@@ -185,7 +185,7 @@ class SceneManager:
         elif type_name == 'resource_point':
             ent = self.world.create_entity(
                 Transform(x=x, y=y, radius=RES_POINT_RADIUS),
-                Renderable(color=COLOR_RESOURCE, shape='triangle', layer=0),
+                Renderable(color=COLOR_RESOURCE, shape='resource_grid', layer=0),  # Orange for neutral
                 Identity(faction=FACTION_NEUTRAL, type='resource'),
                 Stats(hp=RES_POINT_HP, max_hp=RES_POINT_HP, attack_dmg=5, attack_range=30.0, attack_cd=1.0), # Hostile neutral
             )
@@ -204,7 +204,7 @@ class SceneManager:
         elif type_name == 'mountain':
             ent = self.world.create_entity(
                 Transform(x=x, y=y, radius=32),
-                Renderable(color=COLOR_MOUNTAIN, shape='triangle', layer=0),
+                Renderable(color=COLOR_MOUNTAIN, shape='stacked_triangles', layer=0),
                 Identity(faction=FACTION_NEUTRAL, type='obstacle'),
             )
             self.mark_obstacle(x, y, 32)
