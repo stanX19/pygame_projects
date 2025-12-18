@@ -194,7 +194,6 @@ class SceneManager:
         elif type_name == 'river':
             ent = self.world.create_entity(
                 Transform(x=x, y=y, radius=30),
-                Renderable(color=COLOR_RIVER, shape='river_enhanced', layer=0),
                 Identity(faction=FACTION_NEUTRAL, type='obstacle'),
             )
             self.mark_obstacle(x, y, 30)
@@ -203,7 +202,6 @@ class SceneManager:
         elif type_name == 'mountain':
             ent = self.world.create_entity(
                 Transform(x=x, y=y, radius=32),
-                Renderable(color=COLOR_MOUNTAIN, shape='stacked_triangles', layer=0),
                 Identity(faction=FACTION_NEUTRAL, type='obstacle'),
             )
             self.mark_obstacle(x, y, 32)
@@ -420,6 +418,15 @@ class SceneManager:
             self.generated_resource_positions.append((pixel_x, pixel_y))
             # Create resource entity at pixel position
             self.create_entity('resource_point', pixel_x, pixel_y, FACTION_NEUTRAL)
+
+        # GENERATE HIGH-RES BACKGROUND
+        print("Generating background...")
+        from background_generator import BackgroundGenerator
+        bg_gen = BackgroundGenerator(self.cols, self.rows)
+        # Pass the final grid from map generator
+        # The generator has 'grid' which contains strings
+        self.background_surface = bg_gen.generate(generator.grid)
+        print("Background generated.")
     
     def _get_tile_color(self, tile_type):
         """Get color for a tile type during visualization"""

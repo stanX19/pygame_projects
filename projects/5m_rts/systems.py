@@ -785,6 +785,10 @@ class RenderSystem(esper.Processor):
         sm.upgrade_buttons = []
         
         self.window.fill(COLOR_BG)
+        
+        # Draw generated background if available
+        if hasattr(sm, 'background_surface'):
+            self.window.blit(sm.background_surface, (0, 0))
 
         # 2. Draw Entities
         # Sort by layer for correct depth
