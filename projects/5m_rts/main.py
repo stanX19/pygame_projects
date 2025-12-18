@@ -385,16 +385,60 @@ class SceneManager:
         
         return ent
 
-    def generate_terrain(self):
+    def generate_terrain(self, visualize=False, delay=0.05):
         """Generate procedural map using constraint propagation on tile grid"""
         from map_generator import TileMapGenerator
+        import pygame
         
-        # Initialize tile-based generator
-        generator = TileMapGenerator(self.cols, self.rows)
+        # Setup visualization if requested
+        viz_window = None
+        viz_font = None
+        if visualize:
+            pygame.init()
+            viz_window = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+            pygame.display.set_caption("CSP Map Generation - Visualizing...")
+            viz_font = pygame.font.SysFont("Arial", 10)
+            
+            # Define visualization callback
+            def render_generation_state(grid, domains):
+                viz_window.fill((30, 30, 30))  # Dark background
+                
+                tile_w = SCREEN_WIDTH / self.cols
+                tile_h = SCREEN_HEIGHT / self.rows
+                
+                for y in range(self.rows):
+                    for x in range(self.cols):
+                        rect = pygame.Rect(x * tile_w, y * tile_h, tile_w, tile_h)
+                        
+                        # Draw tile
+                        if grid[y][x] is not None:
+                            # Assigned tile - show its value
+                            tile_type = grid[y][x]
+                            color = self._get_tile_color(tile_type)
+                            pygame.draw.rect(viz_window, color, rect)
+                        else:
+                            # Unassigned tile - show domain as 3x3 grid
+                            domain = domains[y][x]
+                            self._draw_domain_grid(viz_window, rect, domain)
+                        
+                        # Draw grid lines
+                        pygame.draw.rect(viz_window, (60, 60, 60), rect, 1)
+                
+                pygame.display.flip()
+                pygame.event.pump()  # Process events to keep window responsive
+        else:
+            render_generation_state = None
+        
+        # Initialize tile-based generator with visualization
+        generator = TileMapGenerator(self.cols, self.rows, render_generation_state, delay)
         
         # Generate map satisfying all constraints
         num_players = 4  # Can be made configurable
         castle_tiles, resource_tiles, obstacle_tiles = generator.generate_map(num_players)
+        
+        # Close visualization window if open
+        if viz_window:
+            pygame.time.wait(1000)  # Show final state for 1 second
         
         # Place obstacles on tiles
         for tile_x, tile_y, obstacle_type in obstacle_tiles:
@@ -415,6 +459,55 @@ class SceneManager:
             self.generated_resource_positions.append((pixel_x, pixel_y))
             # Create resource entity at pixel position
             self.create_entity('resource_point', pixel_x, pixel_y, FACTION_NEUTRAL)
+    
+    def _get_tile_color(self, tile_type):
+        """Get color for a tile type during visualization"""
+        colors = {
+            'castle': COLOR_PLAYER,
+            'resource': COLOR_RESOURCE,
+            'river_vertical': COLOR_RIVER,
+            'river_horizontal': COLOR_RIVER,
+            'river': COLOR_RIVER,
+            'hill_center': COLOR_MOUNTAIN,
+            'hill': COLOR_MOUNTAIN,
+            'empty': COLOR_BG,
+        }
+        return colors.get(tile_type, (80, 80, 80))
+    
+    def _draw_domain_grid(self, window, rect, domain):
+        """Draw 3x3 grid showing domain possibilities"""
+        # Map domain types to grid positions (3x3)
+        domain_positions = {
+            'empty': (1, 1),
+            'castle': (0, 0),
+            'resource': (2, 0),
+            'river_vertical': (0, 1),
+            'river_horizontal': (2, 1),
+            'river': (1, 0),
+            'hill_center': (0, 2),
+            'hill': (2, 2),
+        }
+        
+        # Background
+        pygame.draw.rect(window, (40, 40, 40), rect)
+        
+        # Draw 3x3 grid cells for each possible value in domain
+        cell_w = rect.width / 3
+        cell_h = rect.height / 3
+        
+        for tile_type in domain:
+            if tile_type in domain_positions:
+                gx, gy = domain_positions[tile_type]
+                cell_rect = pygame.Rect(
+                    rect.x + gx * cell_w,
+                    rect.y + gy * cell_h,
+                    cell_w - 1,
+                    cell_h - 1
+                )
+                color = self._get_tile_color(tile_type)
+                # Dim the color for unassigned tiles
+                dim_color = tuple(int(c * 0.5) for c in color)
+                pygame.draw.rect(window, dim_color, cell_rect)
 
 def main():
     pygame.init()
@@ -467,8 +560,8 @@ def main():
         # Init upgrades for bots
         scene.init_faction_upgrades(f)
 
-    # Generate Terrain FIRST (creates castle positions and resources)
-    scene.generate_terrain()
+    # Generate Terrain FIRST with visualization (creates castle positions and resources)
+    scene.generate_terrain(visualize=True, delay=0.05)
     
     # Use procedurally generated castle positions
     all_factions = [FACTION_PLAYER] + bot_factions
