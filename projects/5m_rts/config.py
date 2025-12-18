@@ -29,6 +29,7 @@ COLOR_TEXT = (255, 255, 255)
 # Using UUID-based hashes for unique faction identification
 FACTION_PLAYER = str(uuid.uuid4())[:8]
 FACTION_NEUTRAL = "neutral"
+NUM_PLAYERS = 4
 
 # Bot Colors
 

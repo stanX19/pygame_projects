@@ -29,6 +29,9 @@ class TileMapGenerator:
         # Visualization
         self.visualize_callback = visualize_callback
         self.delay = delay  # Delay in seconds between visualization updates
+        
+        # Debug tracking
+        self._last_constraint_failure = ""
     
     def generate_map(self, num_players=4, max_attempts=1000):
         """Generate map using backtracking CSP with fresh randomization each attempt"""
@@ -59,7 +62,9 @@ class TileMapGenerator:
         self.grid = [[None for _ in range(self.cols)] for _ in range(self.rows)]
         
         # Initial domains: all tiles can be anything
-        self.domains = [[{'empty', 'castle', 'resource', 'river_vertical', 'river_horizontal', 'river', 'hill_center', 'hill'} 
+        # river_vertical/horizontal create continuous river lines
+        # hill/hill_center create mountain clusters
+        self.domains = [[{'empty', 'castle', 'resource', 'river_vertical', 'river_horizontal', 'river', 'hill_center', 'hill', 'fieldland'} 
                          for _ in range(self.cols)] for _ in range(self.rows)]
         
         self.castles_placed = []
@@ -199,113 +204,212 @@ class TileMapGenerator:
             print("DEBUG: ===== ENTIRE CSP ATTEMPT FAILED - RESTARTING =====")
         return result
     
+    def _get_next_unassigned_tile_bfs(self):
+        """
+        Find the next unassigned tile using BFS from all castle locations.
+        Returns (x, y) tuple of next tile to assign, or None if all assigned.
+        """
+        if not self.castles_placed:
+            # No castles yet, fall back to top-left to bottom-right
+            for y in range(self.rows):
+                for x in range(self.cols):
+                    if self.grid[y][x] is None:
+                        return (x, y)
+            return None
+        
+        # BFS from all castles simultaneously
+        queue = deque()
+        visited = set()
+        
+        # Initialize queue with all castle positions
+        for castle_x, castle_y in self.castles_placed:
+            queue.append((castle_x, castle_y))
+            visited.add((castle_x, castle_y))
+        
+        # 4-directional movement (cardinal directions)
+        directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]
+        
+        while queue:
+            x, y = queue.popleft()
+            
+            # Check all neighbors
+            for dx, dy in directions:
+                nx, ny = x + dx, y + dy
+                
+                # Skip if out of bounds or already visited
+                if not (0 <= nx < self.cols and 0 <= ny < self.rows):
+                    continue
+                if (nx, ny) in visited:
+                    continue
+                
+                visited.add((nx, ny))
+                
+                # If this tile is unassigned, return it
+                if self.grid[ny][nx] is None:
+                    return (nx, ny)
+                
+                # Otherwise, add to queue to continue BFS
+                queue.append((nx, ny))
+        
+        # All tiles visited and assigned
+        return None
+
+    
     def _assign_tiles_backtrack(self, num_assigned):
         """
         Backtracking assignment for all tiles.
         When resource cap reached, removes 'resource' from domains.
         Continues assigning terrain until map is complete or constraints fail.
+        Uses BFS-like propagation from castle locations.
         """
-        # Find next unassigned tile
-        for y in range(self.rows):
-            for x in range(self.cols):
-                if self.grid[y][x] is None:
-                    # Try assigning values from domain
-                    domain_copy = list(self.domains[y][x])
-                    
-                    # If resource cap reached, remove 'resource' from possibilities
-                    if len(self.resources_placed) >= self.num_resources_needed and 'resource' in domain_copy:
-                        domain_copy.remove('resource')
-                    
-                    # Apply probability weights
-                    # - 'empty' gets very low weight (but still selectable as fallback)
-                    # - 'river' and 'hill' get lower weight to reduce over-representation
-                    # - Other types get normal weight
-                    weighted_values = []
-                    for value in domain_copy:
-                        if value == 'empty':
-                            weight = 0.1  # Very low, but still possible
-                        elif value in ['river', 'hill']:
-                            weight = 0.3
-                        else:
-                            weight = 1.0
-                        weighted_values.extend([value] * int(weight * 10))
-                    
-                    # Shuffle weighted list for randomness
-                    random.shuffle(weighted_values)
-                    
-                    # Try each value (with duplicates for weighting)
-                    tried_values = set()
-                    for value in weighted_values:
-                        if value in tried_values:
-                            continue  # Skip duplicates
-                        tried_values.add(value)
-                        # Save state for backtracking
-                        saved_grid = deepcopy(self.grid)
-                        saved_domains = deepcopy(self.domains)
-                        saved_resources_len = len(self.resources_placed)
-                        
-                        # Assign value
-                        self.grid[y][x] = value
-                        
-                        # Track resource placements
-                        if value == 'resource':
-                            self.resources_placed.append((x, y))
-                        
-                        # Visualize current state
-                        if self.visualize_callback:
-                            self.visualize_callback(self.grid, self.domains)
-                            if self.delay > 0:
-                                import time
-                                time.sleep(self.delay)
-                        
-                        # Check constraints
-                        if self._check_tile_constraints(x, y, value):
-                            # Recurse
-                            if self._assign_tiles_backtrack(num_assigned + 1):
-                                return True  # Success!
-                        
-                        # BACKTRACK
-                        self.grid = saved_grid
-                        self.domains = saved_domains
-                        # Restore resource list to saved length (recursion may have added multiple)
-                        while len(self.resources_placed) > saved_resources_len:
-                            self.resources_placed.pop()
-                    
-                    # No valid value for this tile
-                    return False
+        # Find next unassigned tile using BFS from castles
+        next_tile = self._get_next_unassigned_tile_bfs()
+        if next_tile is None:
+            # All tiles assigned successfully
+            return True
         
-        # All tiles assigned successfully
-        return True
+        x, y = next_tile
+        # Try assigning values from domain
+        domain_copy = list(self.domains[y][x])
+        
+        # If resource cap reached, remove 'resource' from possibilities
+        if len(self.resources_placed) >= self.num_resources_needed and 'resource' in domain_copy:
+            domain_copy.remove('resource')
+        
+        # Apply probability weights
+        # - 'empty' gets very low weight (but still selectable as fallback)
+        # - 'river' and 'hill' get lower weight to reduce over-representation
+        # - Other types get normal weight
+        weighted_values = []
+        for value in domain_copy:
+            if value == 'empty':
+                weight = 0.1  # Very low, but still possible
+            elif value == 'fieldland':
+                weight = 1.0
+            elif value in ['river', 'hill']:
+                weight = 0.3
+            else:
+                weight = 1.0
+            weighted_values.extend([value] * int(weight * 10))
+        
+        # Shuffle weighted list for randomness
+        random.shuffle(weighted_values)
+        
+        # Try each value (with duplicates for weighting)
+        tried_values = set()
+        for value in weighted_values:
+            if value in tried_values:
+                continue  # Skip duplicates
+            tried_values.add(value)
+            # Save state for backtracking
+            saved_grid = deepcopy(self.grid)
+            saved_domains = deepcopy(self.domains)
+            saved_resources_len = len(self.resources_placed)
+            
+            # Assign value
+            self.grid[y][x] = value
+            
+            # Track resource placements
+            if value == 'resource':
+                self.resources_placed.append((x, y))
+            
+            # Visualize current state
+            if self.visualize_callback:
+                self.visualize_callback(self.grid, self.domains)
+                if self.delay > 0:
+                    import time
+                    time.sleep(self.delay)
+            
+            # Check constraints
+            constraint_failed = False
+            failure_reason = ""
+            
+            if not self._check_tile_constraints(x, y, value):
+                constraint_failed = True
+                failure_reason = self._last_constraint_failure
+            
+            if not constraint_failed:
+                # Recurse
+                if self._assign_tiles_backtrack(num_assigned + 1):
+                    return True  # Success!
+                else:
+                    failure_reason = "recursive backtrack failed"
+            
+            # BACKTRACK
+            if num_assigned < 100:  # Only debug first 100 tiles to avoid spam
+                # Show context about surrounding tiles for better debugging
+                neighbors_info = []
+                for dx, dy in [(0,1), (1,0), (0,-1), (-1,0)]:
+                    nx, ny = x + dx, y + dy
+                    if 0 <= nx < self.cols and 0 <= ny < self.rows:
+                        neighbors_info.append(f"{self.grid[ny][nx] or 'None'}")
+                    else:
+                        neighbors_info.append("OOB")
+                neighbors_str = f"[{','.join(neighbors_info)}]"
+                print(f"  DEBUG: Backtrack at ({x},{y}) value={value} neighbors={neighbors_str}: {failure_reason}")
+            
+            self.grid = saved_grid
+            self.domains = saved_domains
+            # Restore resource list to saved length (recursion may have added multiple)
+            while len(self.resources_placed) > saved_resources_len:
+                self.resources_placed.pop()
+        
+        # No valid value for this tile
+        return False
     
     def _check_tile_constraints(self, x, y, value):
         """
         Check all constraints for assigning value to tile (x, y).
         Returns False if constraint violated.
         """
+        self._last_constraint_failure = ""
+        
         # Resource-specific constraints
         if value == 'resource':
             # Check spacing from other resources
             for rx, ry in self.resources_placed[:-1]:  # Exclude current
                 if max(abs(x - rx), abs(y - ry)) < 3:
+                    self._last_constraint_failure = "resource spacing violated"
                     return False
             
             # Check pathfinding: resource must be reachable from all castles
             if not self._check_resource_accessible_from_castles(x, y):
+                self._last_constraint_failure = "resource not accessible from castles"
                 return False
         
-        # Terrain continuity constraints
-        if value in ['river_vertical', 'river_horizontal', 'hill_center']:
-            # Propagate domain constraints to neighbors
+        
+        # Terrain continuity constraints - propagate to create organized features
+        if value in ['river_vertical', 'river_horizontal', 'hill_center', 'fieldland']:
+            # DEBUG: Log what neighbors look like before propagation
+            if value in ['river_vertical', 'river_horizontal', 'hill_center']:
+                assigned_neighbors = []
+                for nx, ny in [(x+1, y), (x-1, y), (x, y+1), (x, y-1)]:
+                    if 0 <= nx < self.cols and 0 <= ny < self.rows:
+                        if self.grid[ny][nx] is not None:
+                            assigned_neighbors.append(f"{self.grid[ny][nx]}")
+                if len(assigned_neighbors) >= 2 and 'empty' in assigned_neighbors:
+                    print(f"  DEBUG: Placing {value} at ({x},{y}) with assigned neighbors: {assigned_neighbors}")
             self._propagate_terrain_constraints(x, y, value)
         
         # Castle adjacency check (no terrain near castles)
-        if value in ['river_vertical', 'river_horizontal', 'river', 'hill_center', 'hill']:
+        if value in ['river_vertical', 'river_horizontal', 'river', 'hill_center', 'hill', 'fieldland']:
             if self._is_adjacent_to_castle(x, y):
+                self._last_constraint_failure = "adjacent to castle"
                 return False
             
-            # Global connectivity check: ensure all important tiles remain connected
-            if not self._check_global_connectivity():
-                return False
+            # Global connectivity check: Only check for obstacles that could block paths
+            # Don't check connectivity for every single terrain tile - too strict!
+            # Only check if we're placing a significant obstacle
+            if value in ['river_vertical', 'river_horizontal', 'river', 'hill_center', 'hill']:
+                # Only run expensive connectivity check occasionally
+                total_tiles = self.rows * self.cols
+                assigned_count = sum(1 for row in self.grid for tile in row if tile is not None)
+                
+                # Only check connectivity every 10 tiles or for critical terrain
+                if assigned_count % 10 == 0 or len(self.castles_placed) > 0:
+                    if not self._check_global_connectivity():
+                        self._last_constraint_failure = "global connectivity violated"
+                        return False
         
         return True
     
@@ -314,10 +418,9 @@ class TileMapGenerator:
         Flood fill validation to ensure:
         1. All castles can reach each other
         2. All castles can reach all resources
-        3. All castles can reach all assigned empty tiles
         
-        Note: We don't check unassigned tiles - if they become unreachable,
-        they simply won't be assigned as empty (which is fine).
+        Note: We don't check empty tiles - they're just decorative and don't need to be accessible.
+        Only gameplay-critical elements (castles, resources) must be mutually reachable.
         """
         if len(self.castles_placed) == 0:
             return True
@@ -338,14 +441,9 @@ class TileMapGenerator:
             if resource not in reachable:
                 return False
         
-        # Check all ASSIGNED empty tiles are reachable
-        # (We don't check unassigned tiles - if unreachable, they just won't be empty)
-        for y in range(self.rows):
-            for x in range(self.cols):
-                tile = self.grid[y][x]
-                if tile == 'empty':
-                    if (x, y) not in reachable:
-                        return False
+        # REMOVED: Check for empty tile reachability
+        # Empty tiles don't need to be accessible - they're just decorative terrain.
+        # This was causing false rejections when placing hills/rivers surrounded by empty tiles.
         
         return True
     
@@ -382,7 +480,7 @@ class TileMapGenerator:
                     # Unassigned - check if 'empty' is in domain
                     if 'empty' not in self.domains[ny][nx]:
                         continue
-                elif tile not in ['empty', 'castle', 'resource']:
+                elif tile not in ['empty', 'castle', 'resource', 'fieldland']:
                     # Assigned obstacle
                     continue
                 
@@ -461,27 +559,36 @@ class TileMapGenerator:
     def _propagate_terrain_constraints(self, x, y, value):
         """
         Propagate terrain continuity constraints to neighbor domains.
+        This creates organized terrain features instead of random single tiles.
         """
         if value == 'river_vertical':
-            # Up/down neighbors must be river_vertical or river
+            # Up/down neighbors should continue the river vertically
             for ny in [y - 1, y + 1]:
                 if 0 <= ny < self.rows and self.grid[ny][x] is None:
                     allowed = {'river_vertical', 'river', 'empty'}
                     self.domains[ny][x] &= allowed
                     
         elif value == 'river_horizontal':
-            # Left/right neighbors must be river_horizontal or river
+            # Left/right neighbors should continue the river horizontally
             for nx in [x - 1, x + 1]:
                 if 0 <= nx < self.cols and self.grid[y][nx] is None:
                     allowed = {'river_horizontal', 'river', 'empty'}
                     self.domains[y][nx] &= allowed
                     
         elif value == 'hill_center':
-            # Cardinal neighbors must be hill_center or hill
+            # Cardinal neighbors should be hills to form a cluster
             for nx, ny in [(x+1, y), (x-1, y), (x, y+1), (x, y-1)]:
                 if 0 <= nx < self.cols and 0 <= ny < self.rows and self.grid[ny][nx] is None:
                     allowed = {'hill_center', 'hill', 'empty'}
                     self.domains[ny][nx] &= allowed
+        
+        elif value == 'fieldland':
+            # Cardinal neighbors must be empty (fieldland requires all 4 directions to be empty)
+            for nx, ny in [(x+1, y), (x-1, y), (x, y+1), (x, y-1)]:
+                if 0 <= nx < self.cols and 0 <= ny < self.rows and self.grid[ny][nx] is None:
+                    allowed = {'empty'}
+                    self.domains[ny][nx] &= allowed
+        # Generic 'river' doesn't propagate - it's for isolated river tiles or endpoints
     
     def _check_resource_accessible_from_castles(self, rx, ry):
         """
@@ -534,7 +641,7 @@ class TileMapGenerator:
                     # Unassigned - check if 'empty' is in domain (potentially walkable)
                     if 'empty' not in self.domains[ny][nx]:
                         continue
-                elif tile not in ['empty', 'castle', 'resource']:
+                elif tile not in ['empty', 'castle', 'resource', 'fieldland']:
                     # Assigned obstacle
                     continue
                 
@@ -548,7 +655,7 @@ class TileMapGenerator:
         return False
     
     def _get_current_obstacles(self):
-        """Get set of current obstacle positions."""
+        """Get set of current obstacle positions (fieldland is NOT an obstacle, it's passable)."""
         obstacles = set()
         for y in range(self.rows):
             for x in range(self.cols):
@@ -873,12 +980,14 @@ class TileMapGenerator:
         for y in range(self.rows):
             for x in range(self.cols):
                 tile = self.grid[y][x]
-                if tile in ['river_vertical', 'river_horizontal']:
+                if tile in ['river_vertical', 'river_horizontal', 'river']:
                     obstacles.append((x, y, 'river'))
                     self.grid[y][x] = 'river'
-                elif tile == 'hill_center':
+                elif tile in ['hill_center', 'hill']:
                     obstacles.append((x, y, 'mountain'))
                     self.grid[y][x] = 'mountain'
+                elif tile == 'fieldland':
+                    pass  # Fieldland is decorative, not an obstacle
         return obstacles
     
     def _generate_fallback(self, num_players):

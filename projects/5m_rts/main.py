@@ -195,7 +195,7 @@ class SceneManager:
         elif type_name == 'river':
             ent = self.world.create_entity(
                 Transform(x=x, y=y, radius=32),
-                Renderable(color=COLOR_RIVER, shape='square', layer=0),
+                Renderable(color=COLOR_RIVER, shape='river_enhanced', layer=0),
                 Identity(faction=FACTION_NEUTRAL, type='obstacle'),
             )
             self.mark_obstacle(x, y, 32)
@@ -385,7 +385,7 @@ class SceneManager:
         
         return ent
 
-    def generate_terrain(self, visualize=False, delay=0.05):
+    def generate_terrain(self, visualize=True, delay=0.01):
         """Generate procedural map using constraint propagation on tile grid"""
         from map_generator import TileMapGenerator
         import pygame
@@ -433,8 +433,7 @@ class SceneManager:
         generator = TileMapGenerator(self.cols, self.rows, render_generation_state, delay)
         
         # Generate map satisfying all constraints
-        num_players = 4  # Can be made configurable
-        castle_tiles, resource_tiles, obstacle_tiles = generator.generate_map(num_players)
+        castle_tiles, resource_tiles, obstacle_tiles = generator.generate_map(NUM_PLAYERS)
         
         # Close visualization window if open
         if viz_window:
@@ -471,6 +470,7 @@ class SceneManager:
             'hill_center': COLOR_MOUNTAIN,
             'hill': COLOR_MOUNTAIN,
             'empty': COLOR_BG,
+			'fieldland': (20, 20, 20),
         }
         return colors.get(tile_type, (80, 80, 80))
     
@@ -561,7 +561,7 @@ def main():
         scene.init_faction_upgrades(f)
 
     # Generate Terrain FIRST with visualization (creates castle positions and resources)
-    scene.generate_terrain(visualize=True, delay=0.05)
+    scene.generate_terrain()
     
     # Use procedurally generated castle positions
     all_factions = [FACTION_PLAYER] + bot_factions

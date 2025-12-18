@@ -844,6 +844,9 @@ class RenderSystem(esper.Processor):
                         sy = start_y + row * square_size
                         small_rect = pygame.Rect(sx, sy, actual_square, actual_square)
                         pygame.draw.rect(self.window, (255, 215, 0), small_rect)  # Yellow
+            elif rend.shape == 'river_enhanced':
+                # Enhanced river rendering - handled in separate pass below
+                pass
 
             # Draw HP bar for damaged units
             try:
@@ -858,7 +861,86 @@ class RenderSystem(esper.Processor):
             except KeyError:
                 pass
 
-                pass
+        # Second pass: Draw enhanced rivers with connections
+        # Collect all river entities first
+        river_entities = []
+        river_positions = {}
+        for ent, (trans, rend, ident) in self.world.get_components(Transform, Renderable, Identity):
+            if rend.shape == 'river_enhanced' and ident.type == 'obstacle':
+                river_entities.append((ent, trans, rend))
+                # Store in grid coordinates for adjacency check
+                grid_x = int(trans.x // TILE_SIZE)
+                grid_y = int(trans.y // TILE_SIZE)
+                river_positions[(grid_x, grid_y)] = (ent, trans, rend)
+        
+        # Draw rivers with connections
+        for ent, trans, rend in river_entities:
+            grid_x = int(trans.x // TILE_SIZE)
+            grid_y = int(trans.y // TILE_SIZE)
+            
+            # Check for adjacent rivers in 4 cardinal directions
+            adjacent = {
+                'up': (grid_x, grid_y - 1) in river_positions,
+                'down': (grid_x, grid_y + 1) in river_positions,
+                'left': (grid_x - 1, grid_y) in river_positions,
+                'right': (grid_x + 1, grid_y) in river_positions
+            }
+            
+            # Count connections
+            num_connections = sum(adjacent.values())
+            
+            # Colors for rendering
+            sand_color = (238, 214, 175)  # Peach/sand for shoreline
+            water_color = rend.color  # Blue water
+            dark_water = tuple(int(c * 0.7) for c in water_color)  # Darker for gradient
+            
+            # Always draw sand border circle first (largest)
+            pygame.draw.circle(self.window, sand_color, (int(trans.x), int(trans.y)), int(trans.radius) + 3)
+            
+            # Draw base water circle
+            pygame.draw.circle(self.window, water_color, (int(trans.x), int(trans.y)), int(trans.radius))
+            
+            # Draw connecting rectangles to adjacent rivers
+            rect_width = trans.radius * 2
+            
+            if adjacent['up']:
+                _, other_trans, _ = river_positions[(grid_x, grid_y - 1)]
+                # Draw sand border rectangle
+                sand_rect = pygame.Rect(trans.x - trans.radius - 3, other_trans.y, rect_width + 6, trans.y - other_trans.y)
+                pygame.draw.rect(self.window, sand_color, sand_rect)
+                # Draw water rectangle
+                water_rect = pygame.Rect(trans.x - trans.radius, other_trans.y, rect_width, trans.y - other_trans.y)
+                pygame.draw.rect(self.window, water_color, water_rect)
+                # Draw center gradient (darker)
+                center_rect = pygame.Rect(trans.x - trans.radius * 0.3, other_trans.y, trans.radius * 0.6, trans.y - other_trans.y)
+                pygame.draw.rect(self.window, dark_water, center_rect)
+            
+            if adjacent['down']:
+                _, other_trans, _ = river_positions[(grid_x, grid_y + 1)]
+                sand_rect = pygame.Rect(trans.x - trans.radius - 3, trans.y, rect_width + 6, other_trans.y - trans.y)
+                pygame.draw.rect(self.window, sand_color, sand_rect)
+                water_rect = pygame.Rect(trans.x - trans.radius, trans.y, rect_width, other_trans.y - trans.y)
+                pygame.draw.rect(self.window, water_color, water_rect)
+                center_rect = pygame.Rect(trans.x - trans.radius * 0.3, trans.y, trans.radius * 0.6, other_trans.y - trans.y)
+                pygame.draw.rect(self.window, dark_water, center_rect)
+            
+            if adjacent['left']:
+                _, other_trans, _ = river_positions[(grid_x - 1, grid_y)]
+                sand_rect = pygame.Rect(other_trans.x, trans.y - trans.radius - 3, trans.x - other_trans.x, rect_width + 6)
+                pygame.draw.rect(self.window, sand_color, sand_rect)
+                water_rect = pygame.Rect(other_trans.x, trans.y - trans.radius, trans.x - other_trans.x, rect_width)
+                pygame.draw.rect(self.window, water_color, water_rect)
+                center_rect = pygame.Rect(other_trans.x, trans.y - trans.radius * 0.3, trans.x - other_trans.x, trans.radius * 0.6)
+                pygame.draw.rect(self.window, dark_water, center_rect)
+            
+            if adjacent['right']:
+                _, other_trans, _ = river_positions[(grid_x + 1, grid_y)]
+                sand_rect = pygame.Rect(trans.x, trans.y - trans.radius - 3, other_trans.x - trans.x, rect_width + 6)
+                pygame.draw.rect(self.window, sand_color, sand_rect)
+                water_rect = pygame.Rect(trans.x, trans.y - trans.radius, other_trans.x - trans.x, rect_width)
+                pygame.draw.rect(self.window, water_color, water_rect)
+                center_rect = pygame.Rect(trans.x, trans.y - trans.radius * 0.3, other_trans.x - trans.x, trans.radius * 0.6)
+                pygame.draw.rect(self.window, dark_water, center_rect)
 
         # Draw Construction Progress (Overlay on sites)
         for ent, (trans, site) in self.world.get_components(Transform, ConstructionSite):
