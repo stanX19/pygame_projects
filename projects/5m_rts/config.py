@@ -2,16 +2,20 @@
 Global constants and configuration for 5m War.
 """
 import uuid
+import pygame
 
 # Screen & Map
 # Map dimensions (in tiles)
-MAP_COLS = 20
-MAP_ROWS = 10
+pygame.display.init()
+_MAX_SCREEN_WIDTH = pygame.display.Info().current_w
+_MAX_SCREEN_HEIGHT = pygame.display.Info().current_h * 9 // 10
+TILE_SIZE = 64  # Size of each tile in pixels
+MAP_COLS = _MAX_SCREEN_WIDTH // TILE_SIZE
+MAP_ROWS = _MAX_SCREEN_HEIGHT // TILE_SIZE
 
 # Screen size derived from map size
-TILE_SIZE = 64  # Size of each tile in pixels
-SCREEN_WIDTH = MAP_COLS * TILE_SIZE  # 25 * 64 = 1600
-SCREEN_HEIGHT = MAP_ROWS * TILE_SIZE  # 15 * 64 = 960
+SCREEN_WIDTH = MAP_COLS * TILE_SIZE
+SCREEN_HEIGHT = MAP_ROWS * TILE_SIZE
 FPS = 60
 
 # Colors (R, G, B)
@@ -31,9 +35,19 @@ FACTION_PLAYER = str(uuid.uuid4())[:8]
 FACTION_NEUTRAL = "neutral"
 NUM_PLAYERS = 6
 
-# Bot Colors
-
-
+# Bot Colors (Hardcoded distinct colors to avoid Player's Royal Blue)
+BOT_COLORS = [
+    (220, 20, 60),    # Crimson (Red-ish)
+    (255, 140, 0),    # Dark Orange
+    (138, 43, 226),   # Blue Violet (distinct from Royal Blue)
+    (0, 128, 128),    # Teal
+    (155, 215, 0),    # Gold
+    (255, 20, 147),   # Deep Pink
+    (139, 69, 19),    # Saddle Brown (Mountain color, but acceptable for units)
+    (0, 255, 255),    # Cyan
+    (50, 205, 50),    # Lime Green
+    (255, 0, 255),    # Magenta
+]
 # Game Rules
 MATCH_DURATION = 300  # 5 minutes in seconds
 SUDDEN_DEATH_TIME = 240 # 4 minutes

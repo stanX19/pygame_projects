@@ -505,14 +505,10 @@ def main():
 
     # Initial Setup
     # Create Faction Entities (Color/Name)
-    BOT_COLORS = [
-        (220, 20, 60),    # Crimson
-        (255, 140, 0),    # Orange
-        (138, 43, 226),   # Purple
-    ]
-    
     # Generate Bot Factions
-    bot_factions = [str(uuid.uuid4())[:8] for _ in range(3)]
+    # Calculate number of bots based on total players
+    num_bots = max(0, NUM_PLAYERS - 1)
+    bot_factions = [str(uuid.uuid4())[:8] for _ in range(num_bots)]
     
     scene.world.create_entity(FactionInfo(id=FACTION_PLAYER, name="PLAYER", color=COLOR_PLAYER))
     scene.world.create_entity(FactionInfo(id=FACTION_NEUTRAL, name="NEUTRAL", color=COLOR_NEUTRAL))
@@ -521,7 +517,9 @@ def main():
     scene.init_faction_upgrades(FACTION_PLAYER)
     
     for i, f in enumerate(bot_factions):
+        # Use hardcoded colors
         c = BOT_COLORS[i % len(BOT_COLORS)]
+        
         scene.world.create_entity(FactionInfo(id=f, name=f"AI-{i+1}", color=c))
         
         # Init resources for bots
