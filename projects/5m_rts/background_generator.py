@@ -202,8 +202,9 @@ class BackgroundGenerator:
         # Pre-convert grid to flags for speed
         flag_grid = [[self.get_tile_flags(t) for t in row] for row in grid_data]
         
-        for sy in range(sub_rows):
-            for sx in range(sub_cols):
+        # Extend range by 1 to cover the gap from the -8 shift
+        for sy in range(sub_rows + 1):
+            for sx in range(sub_cols + 1):
                 # Map subtile to Grid Coordinate
                 gx = sx // 4
                 gy = sy // 4
@@ -283,8 +284,8 @@ class BackgroundGenerator:
                 # Resolve Sprite
                 sprite = self.get_corres_sprite(c)
                 
-                # Blit
-                surface.blit(sprite, (sx * 16, sy * 16))
+                # Blit (Shifted -8 to align center)
+                surface.blit(sprite, (sx * 16 - 8, sy * 16 - 8))
                 
         return surface
 
