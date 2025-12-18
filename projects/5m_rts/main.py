@@ -43,8 +43,9 @@ class SceneManager:
     def mark_obstacle(self, x, y, radius):
         """Mark all grid cells covered by an obstacle with given radius."""
         # Calculate the bounding box of the obstacle in grid coordinates
-        # Add a small buffer to ensure proper blocking
-        buffer = 8  # Extra pixels to ensure blocking
+        # Buffer needs to account for: obstacle radius + unit radius + safety margin
+        # This ensures pathfinding waypoints (at tile centers) won't put units in collision range
+        buffer = 20  # Extra pixels to ensure blocking (increased for pathfinding safety)
         min_x = int((x - radius - buffer) // TILE_SIZE)
         max_x = int((x + radius + buffer) // TILE_SIZE)
         min_y = int((y - radius - buffer) // TILE_SIZE)
@@ -194,11 +195,11 @@ class SceneManager:
 
         elif type_name == 'river':
             ent = self.world.create_entity(
-                Transform(x=x, y=y, radius=32),
+                Transform(x=x, y=y, radius=30),
                 Renderable(color=COLOR_RIVER, shape='river_enhanced', layer=0),
                 Identity(faction=FACTION_NEUTRAL, type='obstacle'),
             )
-            self.mark_obstacle(x, y, 32)
+            self.mark_obstacle(x, y, 30)
             return ent
 
         elif type_name == 'mountain':
@@ -259,8 +260,8 @@ class SceneManager:
             start_cell = self._find_nearest_walkable(start_cell)
         
         # Allow ending on blocked cells only if it's very close to a walkable cell
-        end_is_blocked = self.grid[end_cell[1]][end_cell[0]] == 1
-        if end_is_blocked:
+        original_end_is_blocked = self.grid[end_cell[1]][end_cell[0]] == 1
+        if original_end_is_blocked:
             # Try to find a walkable cell near the target
             nearest_walkable = self._find_nearest_walkable(end_cell)
             if nearest_walkable:
@@ -293,8 +294,9 @@ class SceneManager:
                             queue.append((nx, ny))
         
         if not found:
-            # No path found - return direct path and let collision handle it
-            return [(end_x, end_y)]
+            # No path found - return EMPTY path so units don't walk through walls
+            # print(f"Pathfinding failed from {start_cell} to {end_cell}")
+            return []
         
         # Reconstruct path
         path = []
@@ -313,10 +315,12 @@ class SceneManager:
             
         # Replace last point with exact target for precision
         if world_path:
-            world_path[-1] = (end_x, end_y)
+            if not original_end_is_blocked:
+                world_path[-1] = (end_x, end_y)
         else:
-            # If path is empty but we're not at start, add target
-            world_path = [(end_x, end_y)]
+            # If path is empty but we're not at start, add target ONLY if safe
+            if not original_end_is_blocked:
+                world_path = [(end_x, end_y)]
             
         return world_path
     

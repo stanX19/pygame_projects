@@ -173,6 +173,7 @@ class TileMapGenerator:
         Forward check for resource placement:
         1. Fix domain to just 'resource'
         2. Check spacing from other resources
+        3. Check that each castle has at least one resource within 3 tiles
         """
         self.domains[ry][rx] = {'resource'}
         
@@ -181,16 +182,19 @@ class TileMapGenerator:
             if max(abs(rx - other_rx), abs(ry - other_ry)) < 3:
                 return False
         
-        # Check that each castle so far can potentially reach a resource
-        # (Simplified check - just ensure not too far)
-        for cx, cy in self.castles_placed:
-            has_nearby_resource = False
-            for res_x, res_y in self.resources_placed:
-                if max(abs(cx - res_x), abs(cy - res_y)) <= 10:
-                    has_nearby_resource = True
-                    break
-            if not has_nearby_resource and len(self.resources_placed) > len(self.castles_placed):
-                return False  # No resource near this castle
+        # After placing enough resources, verify each castle has one within 3 tiles
+        # Only check this constraint once we've placed at least as many resources as castles
+        if len(self.resources_placed) >= len(self.castles_placed):
+            for cx, cy in self.castles_placed:
+                has_close_resource = False
+                for res_x, res_y in self.resources_placed:
+                    # Calculate Manhattan distance (path-based distance)
+                    manhattan_dist = abs(cx - res_x) + abs(cy - res_y)
+                    if manhattan_dist <= 3:
+                        has_close_resource = True
+                        break
+                if not has_close_resource:
+                    return False  # This castle has no resource within 3 tiles
         
         return True
     

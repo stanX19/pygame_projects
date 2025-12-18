@@ -229,7 +229,8 @@ class MovementSystem(esper.Processor):
         self.spatial_hash.clear()
         for ent, (trans, ident) in self.world.get_components(Transform, Identity):
             if ident.type in ['unit', 'obstacle', 'castle', 'resource']:
-                self.spatial_hash.insert(ent, trans.x, trans.y)
+                # Pass radius to handle large obstacles correctly
+                self.spatial_hash.insert(ent, trans.x, trans.y, trans.radius)
 
         # 2. Process Physics
         for ent, (trans, vel, mov, ident) in self.world.get_components(Transform, Velocity, Movement, Identity):
@@ -311,34 +312,64 @@ class MovementSystem(esper.Processor):
 
             # C. Move towards Target
             if mov.moving and mov.target_x is not None:
-                dx = mov.target_x - trans.x
-                dy = mov.target_y - trans.y
-                dist = math.hypot(dx, dy)
-
-                if dist < 5:  # Arrived
-                    # Check next waypoint
+                # First, validate if current waypoint is inside an obstacle
+                # If so, skip to next waypoint to avoid getting stuck
+                waypoint_blocked = False
+                nearby = self.spatial_hash.query_nearby(mov.target_x, mov.target_y)
+                for obs_id in nearby:
+                    try:
+                        obs_ident = self.world.component_for_entity(obs_id, Identity)
+                        if obs_ident.type == 'obstacle':
+                            obs_trans = self.world.component_for_entity(obs_id, Transform)
+                            dist_to_waypoint = math.hypot(mov.target_x - obs_trans.x, mov.target_y - obs_trans.y)
+                            # Check if waypoint is inside obstacle (with unit radius buffer)
+                            if dist_to_waypoint < obs_trans.radius + trans.radius + 5:
+                                waypoint_blocked = True
+                                break
+                    except KeyError:
+                        pass
+                
+                # Skip blocked waypoints
+                if waypoint_blocked and mov.path:
+                    mov.path.pop(0)
                     if mov.path:
-                        mov.path.pop(0)
-                        if mov.path:
-                            mov.target_x, mov.target_y = mov.path[0]
-                        else:
-                            mov.moving = False
-                            mov.target_x = None # Clear target
-                            vel.vx *= 0.5
-                            vel.vy *= 0.5
+                        mov.target_x, mov.target_y = mov.path[0]
                     else:
                         mov.moving = False
                         mov.target_x = None
-                        vel.vx *= 0.5  # Slow down
+                        vel.vx *= 0.5
                         vel.vy *= 0.5
-                else:
-                    multiplier = 1.0
-                    if self.world.scene_manager.sudden_death:
-                        multiplier *= 3.0
+                
+                # Normal waypoint navigation
+                if mov.moving and mov.target_x is not None:
+                    dx = mov.target_x - trans.x
+                    dy = mov.target_y - trans.y
+                    dist = math.hypot(dx, dy)
 
-                    speed = mov.speed * multiplier
-                    vel.vx += (dx / dist) * speed * 5.0 * dt  # Steering
-                    vel.vy += (dy / dist) * speed * 5.0 * dt
+                    if dist < 10:  # Arrived (increased threshold for better reliability)
+                        # Check next waypoint
+                        if mov.path:
+                            mov.path.pop(0)
+                            if mov.path:
+                                mov.target_x, mov.target_y = mov.path[0]
+                            else:
+                                mov.moving = False
+                                mov.target_x = None # Clear target
+                                vel.vx *= 0.5
+                                vel.vy *= 0.5
+                        else:
+                            mov.moving = False
+                            mov.target_x = None
+                            vel.vx *= 0.5  # Slow down
+                            vel.vy *= 0.5
+                    else:
+                        multiplier = 1.0
+                        if self.world.scene_manager.sudden_death:
+                            multiplier *= 3.0
+
+                        speed = mov.speed * multiplier
+                        vel.vx += (dx / dist) * speed * 5.0 * dt  # Steering
+                        vel.vy += (dy / dist) * speed * 5.0 * dt
 
             # D. Friction/Damping
             vel.vx *= 0.90
@@ -886,16 +917,7 @@ class RenderSystem(esper.Processor):
                 'right': (grid_x + 1, grid_y) in river_positions
             }
             
-            # Count connections
-            num_connections = sum(adjacent.values())
-            
-            # Colors for rendering
-            sand_color = (238, 214, 175)  # Peach/sand for shoreline
             water_color = rend.color  # Blue water
-            dark_water = tuple(int(c * 0.7) for c in water_color)  # Darker for gradient
-            
-            # Always draw sand border circle first (largest)
-            pygame.draw.circle(self.window, sand_color, (int(trans.x), int(trans.y)), int(trans.radius) + 3)
             
             # Draw base water circle
             pygame.draw.circle(self.window, water_color, (int(trans.x), int(trans.y)), int(trans.radius))
@@ -905,42 +927,23 @@ class RenderSystem(esper.Processor):
             
             if adjacent['up']:
                 _, other_trans, _ = river_positions[(grid_x, grid_y - 1)]
-                # Draw sand border rectangle
-                sand_rect = pygame.Rect(trans.x - trans.radius - 3, other_trans.y, rect_width + 6, trans.y - other_trans.y)
-                pygame.draw.rect(self.window, sand_color, sand_rect)
-                # Draw water rectangle
                 water_rect = pygame.Rect(trans.x - trans.radius, other_trans.y, rect_width, trans.y - other_trans.y)
                 pygame.draw.rect(self.window, water_color, water_rect)
-                # Draw center gradient (darker)
-                center_rect = pygame.Rect(trans.x - trans.radius * 0.3, other_trans.y, trans.radius * 0.6, trans.y - other_trans.y)
-                pygame.draw.rect(self.window, dark_water, center_rect)
             
             if adjacent['down']:
                 _, other_trans, _ = river_positions[(grid_x, grid_y + 1)]
-                sand_rect = pygame.Rect(trans.x - trans.radius - 3, trans.y, rect_width + 6, other_trans.y - trans.y)
-                pygame.draw.rect(self.window, sand_color, sand_rect)
                 water_rect = pygame.Rect(trans.x - trans.radius, trans.y, rect_width, other_trans.y - trans.y)
                 pygame.draw.rect(self.window, water_color, water_rect)
-                center_rect = pygame.Rect(trans.x - trans.radius * 0.3, trans.y, trans.radius * 0.6, other_trans.y - trans.y)
-                pygame.draw.rect(self.window, dark_water, center_rect)
             
             if adjacent['left']:
                 _, other_trans, _ = river_positions[(grid_x - 1, grid_y)]
-                sand_rect = pygame.Rect(other_trans.x, trans.y - trans.radius - 3, trans.x - other_trans.x, rect_width + 6)
-                pygame.draw.rect(self.window, sand_color, sand_rect)
                 water_rect = pygame.Rect(other_trans.x, trans.y - trans.radius, trans.x - other_trans.x, rect_width)
                 pygame.draw.rect(self.window, water_color, water_rect)
-                center_rect = pygame.Rect(other_trans.x, trans.y - trans.radius * 0.3, trans.x - other_trans.x, trans.radius * 0.6)
-                pygame.draw.rect(self.window, dark_water, center_rect)
             
             if adjacent['right']:
                 _, other_trans, _ = river_positions[(grid_x + 1, grid_y)]
-                sand_rect = pygame.Rect(trans.x, trans.y - trans.radius - 3, other_trans.x - trans.x, rect_width + 6)
-                pygame.draw.rect(self.window, sand_color, sand_rect)
                 water_rect = pygame.Rect(trans.x, trans.y - trans.radius, other_trans.x - trans.x, rect_width)
                 pygame.draw.rect(self.window, water_color, water_rect)
-                center_rect = pygame.Rect(trans.x, trans.y - trans.radius * 0.3, other_trans.x - trans.x, trans.radius * 0.6)
-                pygame.draw.rect(self.window, dark_water, center_rect)
 
         # Draw Construction Progress (Overlay on sites)
         for ent, (trans, site) in self.world.get_components(Transform, ConstructionSite):
