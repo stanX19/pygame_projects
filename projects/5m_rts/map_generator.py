@@ -8,6 +8,8 @@ from collections import deque
 from copy import deepcopy
 
 
+import config
+
 class TileMapGenerator:
     """
     Unified CSP solver using backtracking search.
@@ -22,7 +24,8 @@ class TileMapGenerator:
         
         # CSP state
         self.num_castles_needed = 0
-        self.num_resources_needed = 0
+        self.num_resources_needed = 0 # Will be calculated dynamically
+        self.total_resources_needed = 0
         self.castles_placed = []
         self.resources_placed = []
         
@@ -36,7 +39,8 @@ class TileMapGenerator:
     def generate_map(self, num_players=4, max_attempts=1000):
         """Generate map using backtracking CSP with fresh randomization each attempt"""
         self.num_castles_needed = num_players
-        self.num_resources_needed = num_players * 2
+        # Total resources = guaranteed per castle + extra scattered ones
+        self.total_resources_needed = (num_players * config.RESOURCES_PER_CASTLE) + config.EXTRA_RESOURCES
         
         for attempt in range(max_attempts):
             print(f"Attempt {attempt + 1}...")
@@ -85,11 +89,120 @@ class TileMapGenerator:
                 if 'castle' in self.domains[y][x]:
                     self.domains[y][x].discard('castle')
         
-        # PHASE 2: Unified resource + terrain placement with backtracking
+        # PHASE 2: Place Guaranteed Resources & Carve Paths (NEW)
+        # This ensures each castle has fairness before we fill the rest
+        if not self._place_guaranteed_resources():
+            return False
+            
+        # PHASE 3: Unified resource + terrain placement with backtracking
         if not self._place_resources_and_terrain_backtrack():
             return False
         
         return True
+
+    def _place_guaranteed_resources(self):
+        """
+        Place guaranteed resources near each castle and carve paths to them.
+        This modifies self.grid and self.domains directly.
+        Returns True if successful, False if cannot place.
+        """
+        print("DEBUG: Placing guaranteed resources...")
+        
+        for cx, cy in self.castles_placed:
+            placed_count = 0
+            attempts = 0
+            
+            while placed_count < config.RESOURCES_PER_CASTLE and attempts < 50:
+                attempts += 1
+                
+                # Pick a spot near the castle (radius 2-4)
+                # Spiral out or random selection in range
+                rx = cx + random.randint(-4, 4)
+                ry = cy + random.randint(-4, 4)
+                
+                # Check bounds
+                if not (0 <= rx < self.cols and 0 <= ry < self.rows):
+                    continue
+                    
+                # Calculate distance
+                dist = abs(rx - cx) + abs(ry - cy) # Manhattan
+                if dist < 2 or dist > 5: # Don't place too close (adjacency) or too far
+                    continue
+                
+                # Check if spot is free
+                if self.grid[ry][rx] is not None:
+                    continue
+                    
+                # Check spacing from other resources (even guaranteed ones)
+                too_close = False
+                for ox, oy in self.resources_placed:
+                    if max(abs(rx - ox), abs(ry - oy)) < 2: # Min 2 tiles between any resources
+                        too_close = True
+                        break
+                if too_close:
+                    continue
+                
+                # Check not adjacent to ANY castle (including this one's 8-neighbors)
+                if self._is_adjacent_to_castle(rx, ry):
+                    continue
+                
+                # PLACE IT
+                self.grid[ry][rx] = 'resource'
+                self.domains[ry][rx] = {'resource'}
+                self.resources_placed.append((rx, ry))
+                placed_count += 1
+                
+                # CARVE PATH: Make line from castle to resource 'empty'
+                self._carve_path_to_resource(cx, cy, rx, ry)
+                
+            if placed_count < config.RESOURCES_PER_CASTLE:
+                print(f"Failed to place guaranteed resources for castle at {cx},{cy}")
+                return False
+                
+        return True
+    
+    def _carve_path_to_resource(self, cx, cy, rx, ry):
+        """Force a path of empty tiles between castle and resource."""
+        # Simple L-shape or diagonal walk
+        curr_x, curr_y = cx, cy
+        
+        # Use a simple while loop to move towards target
+        step_limit = 20
+        while (curr_x != rx or curr_y != ry) and step_limit > 0:
+            step_limit -= 1
+            
+            # Move towards target
+            if curr_x < rx: dx = 1
+            elif curr_x > rx: dx = -1
+            else: dx = 0
+            
+            if curr_y < ry: dy = 1
+            elif curr_y > ry: dy = -1
+            else: dy = 0
+            
+            # Prefer moving in one axis at a time to look nicer (L-shape)
+            # but allow diagonals if stuck
+            if dx != 0 and dy != 0:
+                if random.random() < 0.5: dy = 0
+                else: dx = 0
+                
+            curr_x += dx
+            curr_y += dy
+            
+            # Don't overwrite the resource itself
+            if curr_x == rx and curr_y == ry:
+                break
+                
+            # Don't overwrite castle (shouldn't happen as we start from it)
+            if (curr_x, curr_y) == (cx, cy):
+                continue
+                
+            # If spot is free, make it empty
+            if self.grid[curr_y][curr_x] is None:
+                self.grid[curr_y][curr_x] = 'empty'
+                self.domains[curr_y][curr_x] = {'empty'}
+            # If it's already a resource or castle, we might have an issue, but we skip
+
     
     def _place_entities_backtrack(self, entity_type, count_needed, placement_list):
         """
@@ -203,6 +316,8 @@ class TileMapGenerator:
         Unified CSP backtracking for ALL tiles (resources + terrain).
         Assigns values to tiles one by one, backtracking on constraint violations.
         """
+        # Count resources already placed (guaranteed ones)
+        # We start backtracking from 0, but _assign_tiles_backtrack needs to know we have some pre-filled grid
         result = self._assign_tiles_backtrack(0)
         if not result:
             print("DEBUG: ===== ENTIRE CSP ATTEMPT FAILED - RESTARTING =====")
@@ -277,7 +392,7 @@ class TileMapGenerator:
         domain_copy = list(self.domains[y][x])
         
         # If resource cap reached, remove 'resource' from possibilities
-        if len(self.resources_placed) >= self.num_resources_needed and 'resource' in domain_copy:
+        if len(self.resources_placed) >= self.total_resources_needed and 'resource' in domain_copy:
             domain_copy.remove('resource')
         
         # Apply probability weights
@@ -370,10 +485,30 @@ class TileMapGenerator:
         
         # Resource-specific constraints
         if value == 'resource':
-            # Check spacing from other resources
+            # Guaranteed resources already checked during placement.
+            # This check is mainly for EXTRA resources placed by CSP.
+            
+            # Check spacing from ALL other resources (guaranteed + extra)
+            # Use MIN_RESOURCE_DIST from config for extra resources
+            # But wait, if we are close to a guaranteed resource, we should fail.
+            # Actually, standardizing: any new resource must be far from others.
             for rx, ry in self.resources_placed[:-1]:  # Exclude current
-                if max(abs(x - rx), abs(y - ry)) < 3:
-                    self._last_constraint_failure = "resource spacing violated"
+                # Note: self.resources_placed includes the current one if we just appended it? 
+                # Yes, _assign_tiles_backtrack appends before calling this.
+                # So we check against all others.
+                
+                # Check distance to other resources
+                if max(abs(x - rx), abs(y - ry)) < 3: # Keep minimum 3 for any resource pair
+                     self._last_constraint_failure = "resource too close to another"
+                     return False
+            
+            # CRITICAL: Extra resources must be far from ANY castle
+            # (Guaranteed resources are close, but they are already placed and won't trigger this check 
+            #  because we only check constraints for the 'value' we are acting on, and we skip pre-assigned tiles)
+            for cx, cy in self.castles_placed:
+                dist = abs(x - cx) + abs(y - cy)
+                if dist < config.MIN_RESOURCE_DIST:
+                    self._last_constraint_failure = "via extra resource: too close to castle"
                     return False
             
             # Check pathfinding: resource must be reachable from all castles

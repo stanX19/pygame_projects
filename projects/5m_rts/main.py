@@ -178,7 +178,6 @@ class SceneManager:
                 Stats(hp=CASTLE_HP, max_hp=CASTLE_HP, attack_dmg=CASTLE_DMG, attack_range=CASTLE_RANGE, attack_cd=CASTLE_CD),
                 ResourceGenerator(rate=RES_GENERATION_RATE) # Castle generates base resources
             )
-            self.mark_obstacle(x, y, CASTLE_RADIUS)
             # Apply current faction upgrades
             self.apply_faction_upgrades_to_entity(ent, faction_id, 'castle')
             return ent
@@ -188,9 +187,8 @@ class SceneManager:
                 Transform(x=x, y=y, radius=RES_POINT_RADIUS),
                 Renderable(color=COLOR_RESOURCE, shape='resource_grid', layer=0),  # Orange for neutral
                 Identity(faction=FACTION_NEUTRAL, type='resource'),
-                Stats(hp=RES_POINT_HP, max_hp=RES_POINT_HP, attack_dmg=5, attack_range=30.0, attack_cd=1.0), # Hostile neutral
+                Stats(hp=RES_POINT_HP, max_hp=RES_POINT_HP, attack_dmg=RES_ATK_DMG, attack_range=RES_ATK_RANGE, attack_cd=RES_ATK_CD), # Hostile neutral
             )
-            self.mark_obstacle(x, y, RES_POINT_RADIUS)
             return ent
 
         elif type_name == 'river':
@@ -241,37 +239,25 @@ class SceneManager:
         return ent
 
     def get_path(self, start_x, start_y, end_x, end_y):
-        """Calculate pathfinding from start to end, avoiding obstacles."""
+        """Simple BFS Pathfinding."""
         start_cell = (int(start_x // TILE_SIZE), int(start_y // TILE_SIZE))
         end_cell = (int(end_x // TILE_SIZE), int(end_y // TILE_SIZE))
         
         # Bounds check
         if not (0 <= start_cell[0] < self.cols and 0 <= start_cell[1] < self.rows): 
-            return [(end_x, end_y)]  # Return direct path if out of bounds
-        if not (0 <= end_cell[0] < self.cols and 0 <= end_cell[1] < self.rows): 
-            # Clamp end cell to valid bounds
-            end_cell = (
-                max(0, min(self.cols - 1, end_cell[0])),
-                max(0, min(self.rows - 1, end_cell[1]))
-            )
+            return []
         
-        # If start or end is on a blocked cell, find nearest walkable cells
-        if self.grid[start_cell[1]][start_cell[0]] == 1:
-            start_cell = self._find_nearest_walkable(start_cell)
-        
-        # Allow ending on blocked cells only if it's very close to a walkable cell
-        original_end_is_blocked = self.grid[end_cell[1]][end_cell[0]] == 1
-        if original_end_is_blocked:
-            # Try to find a walkable cell near the target
-            nearest_walkable = self._find_nearest_walkable(end_cell)
-            if nearest_walkable:
-                end_cell = nearest_walkable
+        # Clamp end_cell
+        end_cell = (
+            max(0, min(self.cols - 1, end_cell[0])),
+            max(0, min(self.rows - 1, end_cell[1]))
+        )
 
-        # BFS pathfinding
+        # Standard BFS
         queue = collections.deque([start_cell])
         came_from = {start_cell: None}
-        
         found = False
+        
         while queue:
             current = queue.popleft()
             if current == end_cell:
@@ -289,14 +275,13 @@ class SceneManager:
                 if 0 <= nx < self.cols and 0 <= ny < self.rows:
                     if (nx, ny) not in came_from:
                         # Only move through walkable cells
-                        if self.grid[ny][nx] == 0:
+                        # If end_cell is blocked (e.g. click on river), allow it as target so we get close
+                        if self.grid[ny][nx] == 0 or (nx, ny) == end_cell:
                             came_from[(nx, ny)] = current
                             queue.append((nx, ny))
         
         if not found:
-            # No path found - return EMPTY path so units don't walk through walls
-            # print(f"Pathfinding failed from {start_cell} to {end_cell}")
-            return []
+            return [] # No path
         
         # Reconstruct path
         path = []
@@ -313,47 +298,14 @@ class SceneManager:
             wy = cy * TILE_SIZE + TILE_SIZE / 2
             world_path.append((wx, wy))
             
-        # Replace last point with exact target for precision
+        # Replace last point with exact target
         if world_path:
-            if not original_end_is_blocked:
-                world_path[-1] = (end_x, end_y)
+             world_path[-1] = (end_x, end_y)
         else:
-            # If path is empty but we're not at start, add target ONLY if safe
-            if not original_end_is_blocked:
-                world_path = [(end_x, end_y)]
+             # Direct line if start/end in same or adjacent cell
+             world_path = [(end_x, end_y)]
             
         return world_path
-    
-    def _find_nearest_walkable(self, cell):
-        """Find the nearest walkable cell to the given cell using BFS."""
-        cx, cy = cell
-        queue = collections.deque([cell])
-        visited = {cell}
-        
-        # Search up to a reasonable distance
-        max_search = 10
-        iterations = 0
-        
-        while queue and iterations < max_search * max_search:
-            iterations += 1
-            current = queue.popleft()
-            curr_x, curr_y = current
-            
-            # Check if this cell is walkable
-            if self.grid[curr_y][curr_x] == 0:
-                return current
-            
-            # Expand search
-            for dx, dy in [(1,0), (-1,0), (0,1), (0,-1), (1,1), (-1,-1), (1,-1), (-1,1)]:
-                nx, ny = curr_x + dx, curr_y + dy
-                if 0 <= nx < self.cols and 0 <= ny < self.rows:
-                    neighbor = (nx, ny)
-                    if neighbor not in visited:
-                        visited.add(neighbor)
-                        queue.append(neighbor)
-        
-        # If no walkable cell found, return original
-        return cell
 
     def add_tile(self, tile_type, tile_x, tile_y):
         """
@@ -389,7 +341,7 @@ class SceneManager:
         
         return ent
 
-    def generate_terrain(self, visualize=True, delay=0.01):
+    def generate_terrain(self, visualize=True, delay=0.025):
         """Generate procedural map using constraint propagation on tile grid"""
         from map_generator import TileMapGenerator
         import pygame

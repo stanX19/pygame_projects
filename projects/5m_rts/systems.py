@@ -223,7 +223,7 @@ class MovementSystem(esper.Processor):
         self.spatial_hash = spatial_hash
 
     def process(self):
-        dt = self.world.scene_manager.dt
+        dt = min(1/30, self.world.scene_manager.dt)
         
         # 1. Update Spatial Hash
         self.spatial_hash.clear()

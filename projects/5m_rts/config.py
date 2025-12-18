@@ -40,6 +40,11 @@ SUDDEN_DEATH_TIME = 240 # 4 minutes
 STARTING_UNITS = 10
 STARTING_RESOURCES = 50
 
+# Map Generation
+RESOURCES_PER_CASTLE = 2   # Guaranteed resources near each castle
+EXTRA_RESOURCES = 3        # Random resources scattered around the map
+MIN_RESOURCE_DIST = 5      # Minimum distance for extra resources from castles
+
 # Unit Stats
 UNIT_RADIUS = 8
 UNIT_SPEED = 60.0
@@ -62,7 +67,10 @@ CASTLE_CONSTRUCTION_TIME = 5.0  # Time to build after confirmation
 
 # Resource Point Stats
 RES_POINT_RADIUS = 24
-RES_POINT_HP = 100
+RES_POINT_HP = 200
+RES_ATK_DMG = 5
+RES_ATK_RANGE = 30.0
+RES_ATK_CD = 0.25
 RES_GENERATION_RATE = 1.0 # Resource per second
 
 # Physics
