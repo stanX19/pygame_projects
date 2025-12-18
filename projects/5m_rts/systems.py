@@ -163,24 +163,33 @@ class InputSystem(esper.Processor):
                 selected_units.append((ent, trans))
 
         if len(selected_units) >= CASTLE_BUILD_REQ:
-            # 1. Calculate centroid first (potential build site)
+            # 1. Determine Build Site (Snap to Tile)
+            # Use cursor position where hold occurred
+            mx, my = self.drag_current
+            
+            # Snap to grid
+            grid_x = int(mx // TILE_SIZE)
+            grid_y = int(my // TILE_SIZE)
+            
+            # Clamp to map bounds
+            grid_x = max(0, min(grid_x, MAP_COLS - 1))
+            grid_y = max(0, min(grid_y, MAP_ROWS - 1))
+            
+            # Calculate world center of that tile
+            center_x = grid_x * TILE_SIZE + TILE_SIZE / 2
+            center_y = grid_y * TILE_SIZE + TILE_SIZE / 2
+            
             units_to_sacrifice = selected_units[:CASTLE_BUILD_REQ]
-            center_x, center_y = 0, 0
-            for _, trans in units_to_sacrifice:
-                center_x += trans.x
-                center_y += trans.y
-            center_x /= len(units_to_sacrifice)
-            center_y /= len(units_to_sacrifice)
 
-            # 2. Check Overlap
+            # 2. Check Overlap - Only check if target tile is occupied
             for ent, (trans, ident) in self.world.get_components(Transform, Identity):
                 if ident.type in ['castle', 'resource', 'obstacle']:
                     dist = math.hypot(trans.x - center_x, trans.y - center_y)
-                    # Use a safe buffer
-                    min_dist = trans.radius + CASTLE_RADIUS + 10
-                    if dist < min_dist:
-                        print("Cannot build here: Structure overlap!")
-                        self.scene_manager.show_message("Cannot build: Overlap!", (255, 50, 50))
+                    # Structures are tile-centered. If dist is small, it's the same tile.
+                    # Use threshold < TILE_SIZE/2 to safely distinguish from neighbors
+                    if dist < 20: 
+                        print("Cannot build here: Tile occupied!")
+                        self.scene_manager.show_message("Cannot build: Tile Occupied!", (255, 50, 50))
                         return
 
             # 3. Check Cost & Start Construction

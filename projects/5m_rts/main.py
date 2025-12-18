@@ -222,6 +222,11 @@ class SceneManager:
     
     def spawn_projectile(self, from_x, from_y, to_x, to_y, damage, target_ent, color, attacker_faction):
         """Spawn a visual projectile for ranged attacks"""
+        speed = 500.0
+        dist = math.hypot(to_x - from_x, to_y - from_y)
+        time_to_target = dist / speed
+        lifetime = time_to_target * 1.25
+        
         ent = self.world.create_entity(
             Transform(x=from_x, y=from_y, radius=3),
             Renderable(color=color, shape='circle', layer=2),  # Layer 2: above units
@@ -233,7 +238,8 @@ class SceneManager:
                 damage=damage,
                 target_entity=target_ent,
                 attacker_faction=attacker_faction,
-                speed=500.0
+                speed=speed,
+                max_lifetime=lifetime
             )
         )
         return ent
@@ -341,7 +347,7 @@ class SceneManager:
         
         return ent
 
-    def generate_terrain(self, visualize=True, delay=0.025):
+    def generate_terrain(self, visualize=True, delay=0.00):
         """Generate procedural map using constraint propagation on tile grid"""
         from map_generator import TileMapGenerator
         import pygame
