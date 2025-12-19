@@ -6,6 +6,7 @@ import esper
 import sys
 from config import *
 from components import *
+from input_system import InputSystem, SELECT_CLICK, SELECT_DRAG, SELECT_HOLD
 from systems import *
 from spatial_hash import SpatialHash
 import collections
@@ -165,7 +166,8 @@ class SceneManager:
                 Stats(hp=UNIT_HP, max_hp=UNIT_HP, attack_dmg=UNIT_DMG, attack_range=15.0, attack_cd=UNIT_CD),
             )
             if faction_id == self.player_faction_id:
-                self.world.add_component(ent, Selectable())
+                # Units selectable by CLICK or DRAG
+                self.world.add_component(ent, Selectable(selection_mask=SELECT_CLICK | SELECT_DRAG))
             # Apply current faction upgrades
             self.apply_faction_upgrades_to_entity(ent, faction_id, 'unit')
             return ent
@@ -179,6 +181,10 @@ class SceneManager:
                 Stats(hp=CASTLE_HP, max_hp=CASTLE_HP, attack_dmg=CASTLE_DMG, attack_range=CASTLE_RANGE, attack_cd=CASTLE_CD),
                 ResourceGenerator(rate=RES_GENERATION_RATE) # Castle generates base resources
             )
+            
+            # All castles selectable by HOLD
+            self.world.add_component(ent, Selectable(selection_mask=SELECT_HOLD))
+                 
             # Apply current faction upgrades
             self.apply_faction_upgrades_to_entity(ent, faction_id, 'castle')
             return ent
@@ -189,6 +195,7 @@ class SceneManager:
                 Renderable(color=COLOR_RESOURCE, shape='resource_grid', layer=0),  # Orange for neutral
                 Identity(faction=FACTION_NEUTRAL, type='resource'),
                 Stats(hp=RES_POINT_HP, max_hp=RES_POINT_HP, attack_dmg=RES_ATK_DMG, attack_range=RES_ATK_RANGE, attack_cd=RES_ATK_CD), # Hostile neutral
+                Selectable(selection_mask=SELECT_HOLD)  # All resources selectable
             )
             return ent
 

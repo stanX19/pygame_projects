@@ -20,6 +20,19 @@ def generate_unit_shape(radius, hp_level, dmg_level, cd_level, speed_level, rang
     """
     points = []
     segments = 32  # Base circle segments
+
+    # Increase segments for high upgrade levels to prevent division by zero in pattern generation
+    if cd_level > 0:
+        # Needs segments // (12 + cd_level * 3) > 0. Using * 2 for visual gaps.
+        segments = max(segments, (12 + cd_level * 3) * 2)
+    
+    if dmg_level > 0:
+        # Needs segments // (3 + dmg_level) > 0.
+        segments = max(segments, (3 + dmg_level) * 2)
+        
+    if range_level > 0:
+        # Needs (segments // (4 + range_level)) // 3 > 0 for proper star shape
+        segments = max(segments, (4 + range_level) * 3)
     
     for i in range(segments):
         angle = (i / segments) * 2 * math.pi

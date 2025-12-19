@@ -33,7 +33,7 @@ COLOR_TEXT = (255, 255, 255)
 # Using UUID-based hashes for unique faction identification
 FACTION_PLAYER = str(uuid.uuid4())[:8]
 FACTION_NEUTRAL = "neutral"
-NUM_PLAYERS = 6
+NUM_PLAYERS = 4
 MAX_UNITS = 300
 
 # Bot Colors (Hardcoded distinct colors to avoid Player's Royal Blue)
@@ -92,11 +92,11 @@ SEPARATION_FORCE = 500.0 # How hard units push away from each other
 
 # Upgrade System
 UPGRADE_COST_BASE = 5  # Base cost for first upgrade
-UPGRADE_COST_MULTIPLIER = 1.5  # Cost multiplier per level
+UPGRADE_COST_MULTIPLIER = 2  # Cost multiplier per level
 RANGE_UPGRADE_COST_MULTIPLIER = 10
 
 # Max upgrade levels
-MAX_UPGRADE_LEVEL = 5
+MAX_UPGRADE_LEVEL = 10
 
 # Unit Upgrades (per level bonuses)
 UNIT_HP_BONUS = 5      # +5 HP per level
@@ -116,3 +116,8 @@ RESOURCE_RATE_BONUS = 0.5  # +0.5 res/sec per level
 # Castle-to-Castle Movement (global per faction)
 CASTLE_MOVE_SPEED_MULTIPLIER = 3.0  # Base speed multiplier
 CASTLE_MOVE_UPGRADE_BONUS = 0.5     # +0.5x multiplier per level
+
+
+# path data
+import os
+ROOT_PATH = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

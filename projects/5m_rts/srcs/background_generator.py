@@ -26,7 +26,8 @@ class BackgroundGenerator:
             # The tileset is 256x64.
             # 256 / 16 = 16 sprites per row
             # 64 / 16 = 4 rows
-            img = pygame.image.load('sprites/tilesets/background.png').convert_alpha()
+            img_path = os.path.join(ROOT_PATH, 'sprites/tilesets/background.png')
+            img = pygame.image.load(img_path).convert_alpha()
             
             sprite_size = 16
             

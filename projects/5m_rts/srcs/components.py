@@ -50,6 +50,7 @@ class Movement:
 @dataclasses.dataclass
 class Selectable:
     selected: bool = False
+    selection_mask: int = 3  # Default: CLICK (1) | DRAG (2)
 
 @dataclasses.dataclass
 class ResourceGenerator:

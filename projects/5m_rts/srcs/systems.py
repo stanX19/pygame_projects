@@ -10,227 +10,7 @@ from components import *
 from spatial_hash import SpatialHash
 
 
-class InputSystem(esper.Processor):
-    def __init__(self, scene_manager):
-        self.scene_manager = scene_manager  # To access resources
-        self.selecting = False
-        self.drag_start = (0, 0)
-        self.drag_current = (0, 0)
-        self.hold_timer = 0.0
-        self.holding_build = False
 
-    def process(self):
-        dt = self.scene_manager.dt
-        keys = pygame.key.get_pressed()
-        mouse_pos = pygame.mouse.get_pos()
-        mouse_buttons = pygame.mouse.get_pressed()  # (Left, Middle, Right)
-
-        # 1. Spawn Unit (Tap on Castle)
-        # 2. Select (Drag Box)
-        # 3. Move (Right Click for MVP simplicity, or Touch-Drag logic)
-
-        events = self.scene_manager.events
-        for event in events:
-            if event.type == pygame.MOUSEBUTTONDOWN:
-                if event.button == 1:  # Left Click
-                    # Check for upgrade button clicks first
-                    clicked_upgrade = self._check_upgrade_buttons(mouse_pos)
-                    if clicked_upgrade:
-                        continue  # Skip other click handling
-                    
-                    self.selecting = True
-                    self.drag_start = mouse_pos
-                    self.drag_current = mouse_pos
-                    self.hold_timer = 0.0
-
-                    # Check Castle Click
-                    clicked_castle = False
-                    for ent, (trans, ident) in self.world.get_components(Transform, Identity):
-                        if ident.faction == self.scene_manager.player_faction_id and ident.type == 'castle':
-                            dist = math.hypot(trans.x - mouse_pos[0], trans.y - mouse_pos[1])
-                            if dist < trans.radius + 5:
-                                # Burst Spawn logic
-                                res = self.scene_manager.resources.get(self.scene_manager.player_faction_id, 0)
-                                burst_count = 1 + int(res / 10)
-                                burst_count = min(burst_count, 10)
-                                success = True
-                                for _ in range(burst_count):
-                                    if not self.scene_manager.spawn_unit(trans.x, trans.y):
-                                        success = False
-                                        break
-                                
-                                if not success:
-                                    self.scene_manager.add_floating_message("UNIT CAP REACHED", mouse_pos[0], mouse_pos[1] - 30)
-                                
-                                clicked_castle = True
-                                self.selecting = False  # Cancel selection if clicking castle
-                                break
-
-                if event.button == 3:  # Right Click (Move Command)
-                    # Convert screen space to world space logic
-                    for ent, (sel, mov) in self.world.get_components(Selectable, Movement):
-                        if sel.selected:
-                            trans = self.world.component_for_entity(ent, Transform)
-                            path = self.scene_manager.get_path(trans.x, trans.y, mouse_pos[0], mouse_pos[1])
-                            mov.path = path
-                            if path:
-                                mov.target_x, mov.target_y = path[0]
-                            else:
-                                mov.target_x = mouse_pos[0]
-                                mov.target_y = mouse_pos[1]
-                            mov.moving = True
-
-            elif event.type == pygame.MOUSEMOTION:
-                if self.selecting:
-                    self.drag_current = mouse_pos
-
-            elif event.type == pygame.MOUSEBUTTONUP:
-                if event.button == 1 and self.selecting:
-                    self._finish_selection()
-                    self.selecting = False
-                    self.holding_build = False
-
-        # Handle Hold to Build Castle logic
-        if self.selecting and not self.holding_build:
-            # If mouse hasn't moved much and held long enough
-            dist_sq = (self.drag_start[0] - self.drag_current[0]) ** 2 + (
-                        self.drag_start[1] - self.drag_current[1]) ** 2
-            if dist_sq < 100:  # Threshold
-                self.hold_timer += dt
-                if self.hold_timer > CASTLE_CONFIRM_TIME:
-                    self._start_construction()
-                    self.holding_build = True  # Prevent spamming
-            else:
-                self.hold_timer = 0.0
-    
-    def _check_upgrade_buttons(self, mouse_pos):
-        """Check if player clicked on an upgrade button. Returns True if clicked."""
-        # Get stored button rectangles from scene manager (set during rendering)
-        if not hasattr(self.scene_manager, 'upgrade_buttons'):
-            return False
-        
-        # Get upgrade system
-        upgrade_sys = None
-        for processor in self.world._processors:
-            if processor.__class__.__name__ == 'UpgradeSystem':
-                upgrade_sys = processor
-                break
-        
-        if not upgrade_sys:
-            return False
-        
-        faction_id = self.scene_manager.player_faction_id
-        
-        # Check each button
-        for button_rect, method_name, upgrade_key in self.scene_manager.upgrade_buttons:
-            if button_rect.collidepoint(mouse_pos):
-                # Try to purchase upgrade
-                method = getattr(upgrade_sys, method_name)
-                success = method(faction_id)
-                
-                if success:
-                    self.scene_manager.show_message(f"Upgraded {upgrade_key.replace('_', ' ').title()}!", (0, 255, 0))
-                else:
-                    self.scene_manager.show_message("Not enough resources!", (255, 100, 100))
-                
-                return True
-        
-        return False
-
-    def _finish_selection(self):
-        # Calculate selection rect
-        x1, y1 = self.drag_start
-        x2, y2 = self.drag_current
-        left, right = min(x1, x2), max(x1, x2)
-        top, bottom = min(y1, y2), max(y1, y2)
-
-        # Deselect all first unless shift held (omitted for MVP)
-        for ent, sel in self.world.get_component(Selectable):
-            sel.selected = False
-
-        # Select units inside rect
-        has_selection = False
-        for ent, (trans, ident, sel) in self.world.get_components(Transform, Identity, Selectable):
-            if ident.faction == self.scene_manager.player_faction_id and ident.type == 'unit':
-                if left < trans.x < right and top < trans.y < bottom:
-                    sel.selected = True
-                    has_selection = True
-        
-        # Show upgrade panel if units were selected
-        if has_selection:
-            self.scene_manager.upgrade_panel_show_time = self.scene_manager.game_time
-
-    def _start_construction(self):
-        # Check if we have > 10 selected units
-        selected_units = [] # List of (entity, transform)
-
-        for ent, (trans, sel) in self.world.get_components(Transform, Selectable):
-            if sel.selected:
-                selected_units.append((ent, trans))
-
-        if len(selected_units) >= CASTLE_BUILD_REQ:
-            # 1. Determine Build Site (Snap to Tile)
-            # Use cursor position where hold occurred
-            mx, my = self.drag_current
-            
-            # Snap to grid
-            grid_x = int(mx // TILE_SIZE)
-            grid_y = int(my // TILE_SIZE)
-            
-            # Clamp to map bounds
-            grid_x = max(0, min(grid_x, MAP_COLS - 1))
-            grid_y = max(0, min(grid_y, MAP_ROWS - 1))
-            
-            # Calculate world center of that tile
-            center_x = grid_x * TILE_SIZE + TILE_SIZE / 2
-            center_y = grid_y * TILE_SIZE + TILE_SIZE / 2
-            
-            units_to_sacrifice = selected_units[:CASTLE_BUILD_REQ]
-
-            # 2. Check Overlap - Only check if target tile is occupied
-            for ent, (trans, ident) in self.world.get_components(Transform, Identity):
-                if ident.type in ['castle', 'resource', 'obstacle']:
-                    dist = math.hypot(trans.x - center_x, trans.y - center_y)
-                    # Structures are tile-centered. If dist is small, it's the same tile.
-                    # Use threshold < TILE_SIZE/2 to safely distinguish from neighbors
-                    if dist < 20: 
-                        print("Cannot build here: Tile occupied!")
-                        self.scene_manager.show_message("Cannot build: Tile Occupied!", (255, 50, 50))
-                        return
-
-            # 3. Check Cost & Start Construction
-            player_id = self.scene_manager.player_faction_id
-            if self.scene_manager.resources[player_id] >= CASTLE_BUILD_COST:
-                self.scene_manager.resources[player_id] -= CASTLE_BUILD_COST
-                
-                # Create Construction Site
-                self.world.create_entity(
-                    Transform(x=center_x, y=center_y, radius=CASTLE_RADIUS),
-                    ConstructionSite(total_time=CASTLE_CONSTRUCTION_TIME, elapsed=0.0, 
-                                     units_ids=[u[0] for u in units_to_sacrifice], faction=player_id),
-                    Renderable(color=(100, 100, 100), shape='square', layer=0) # Grey placeholder
-                )
-                
-                # Command units to move to site
-                for unit_ent, _ in units_to_sacrifice:
-                    # Deselect
-                    try:
-                        self.world.component_for_entity(unit_ent, Selectable).selected = False
-                    except KeyError: pass
-                    
-                    # Move to center
-                    try:
-                        mov = self.world.component_for_entity(unit_ent, Movement)
-                        mov.target_x = center_x
-                        mov.target_y = center_y
-                        mov.moving = True
-                    except KeyError: pass
-
-                print("Construction Started!")
-            else:
-                self.scene_manager.show_message("Not enough Resources!", (255, 50, 50))
-        else:
-            self.scene_manager.show_message(f"Need {CASTLE_BUILD_REQ} units!", (255, 50, 50))
 
 
 class MovementSystem(esper.Processor):
@@ -630,16 +410,18 @@ class RenderSystem(esper.Processor):
         
         # Check what's selected
         selected_type = None
+        selected_faction = None
+        selected_entity = None
         has_selection = False
         
-        # Check for selected units
-        for ent, sel in self.world.get_component(Selectable):
+        # Check for selected entities
+        for ent, (sel, ident) in self.world.get_components(Selectable, Identity):
             if sel.selected:
                 has_selection = True
-                ident = self.world.component_for_entity(ent, Identity)
-                if ident.type == 'unit':
-                    selected_type = 'unit'
-                    break
+                selected_type = ident.type
+                selected_faction = ident.faction
+                selected_entity = ent
+                break  # Only one entity can be selected at a time
         
         # If nothing selected, don't show panel
         if not has_selection:
@@ -647,7 +429,7 @@ class RenderSystem(esper.Processor):
             if hasattr(sm, 'upgrade_panel_position'):
                 delattr(sm, 'upgrade_panel_position')
             return
-        
+            
         # Get mouse position
         mouse_pos = pygame.mouse.get_pos()
         
@@ -655,55 +437,69 @@ class RenderSystem(esper.Processor):
         button_width = 180
         button_height = 35
         spacing_y = 38
+
+        # Determine title and upgrades based on faction and type
+        is_player_owned = (selected_faction == sm.player_faction_id)
+        upgrade_defs = []
+        panel_title = ""
         
-        # Determine what upgrades to show
-        upgrade_defs = [
-            ('Unit HP', 'unit_hp', 'upgrade_unit_hp', (100, 150, 255)),
-            ('Unit Damage', 'unit_dmg', 'upgrade_unit_dmg', (255, 100, 100)),
-            ('Attack Speed', 'unit_cd', 'upgrade_unit_cd', (150, 255, 150)),
-            ('Attack Range', 'unit_range', 'upgrade_unit_range', (255, 150, 255)),
-            ('Move Speed', 'unit_speed', 'upgrade_unit_speed', (255, 200, 100)),
-        ]
+        if selected_type == 'castle':
+            if is_player_owned:
+                panel_title = "Your Castle"
+                upgrade_defs = [
+                    ('Spawn Unit', None, 'spawn_unit', (100, 200, 100)),
+                    ('Castle HP', 'castle_hp', 'upgrade_castle_hp', (100, 150, 255)),
+                    ('Castle Dmg', 'castle_dmg', 'upgrade_castle_dmg', (255, 100, 100)),
+                    ('Castle CD', 'castle_cd', 'upgrade_castle_cd', (150, 255, 150)),
+                ]
+            else:
+                panel_title = "Enemy Castle"
+                upgrade_defs = []
+        elif selected_type == 'resource':
+            if is_player_owned:
+                panel_title = "Resource Point (Captured)"
+                # Future: Add resource upgrade options
+                upgrade_defs = []
+            else:
+                panel_title = "Resource Point"
+                upgrade_defs = []
+        elif selected_type == 'unit':
+            if is_player_owned:
+                panel_title = "Your Units"
+                upgrade_defs = [
+                    ('Unit HP', 'unit_hp', 'upgrade_unit_hp', (100, 150, 255)),
+                    ('Unit Damage', 'unit_dmg', 'upgrade_unit_dmg', (255, 100, 100)),
+                    ('Attack Speed', 'unit_cd', 'upgrade_unit_cd', (150, 255, 150)),
+                    ('Attack Range', 'unit_range', 'upgrade_unit_range', (255, 150, 255)),
+                    ('Move Speed', 'unit_speed', 'upgrade_unit_speed', (255, 200, 100)),
+                ]
+            else:
+                panel_title = "Enemy Units"
+                upgrade_defs = []
         
-        # Calculate panel dimensions
+        # Calculate panel dimensions (include title)
+        title_height = 30
         panel_width = button_width + 20
-        panel_height = len(upgrade_defs) * spacing_y + 35
+        panel_height = title_height + len(upgrade_defs) * spacing_y + 15
         
-        # Use saved position if available, otherwise calculate new position
+        # Check if position was set by input system (when entity was selected)
         if not hasattr(sm, 'upgrade_panel_position'):
-            # First time showing - position at mouse with offset
-            panel_x = mouse_pos[0] + 10
-            panel_y = mouse_pos[1] + 10
-            
-            # Keep within screen bounds
-            if panel_x + panel_width > SCREEN_WIDTH:
-                panel_x = mouse_pos[0] - panel_width - 10
-            if panel_y + panel_height > SCREEN_HEIGHT:
-                panel_y = mouse_pos[1] - panel_height - 10
-            
-            panel_x = max(5, min(SCREEN_WIDTH - panel_width - 5, panel_x))
-            panel_y = max(5, min(SCREEN_HEIGHT - panel_height - 5, panel_y))
-            
-            # Save position
-            sm.upgrade_panel_position = (panel_x, panel_y)
-        else:
-            # Use saved position (menu stays in place)
-            panel_x, panel_y = sm.upgrade_panel_position
+            # No position means panel was hidden - don't show it
+            return
+        
+        # Use saved position (menu stays in place, doesn't follow mouse)
+        panel_x, panel_y = sm.upgrade_panel_position
         
         # Check if mouse is hovering over the panel area
         panel_rect = pygame.Rect(panel_x, panel_y, panel_width, panel_height)
         mouse_hovering = panel_rect.collidepoint(mouse_pos)
         
-        # Only show if hovering OR just selected (within 0.5 seconds)
+        # Only show if hovering
         if not mouse_hovering:
-            # Check if recently selected
-            if not hasattr(sm, 'upgrade_panel_show_time'):
-                return
-            if sm.game_time - sm.upgrade_panel_show_time > 0.5:
-                # Clear position when hiding
-                if hasattr(sm, 'upgrade_panel_position'):
-                    delattr(sm, 'upgrade_panel_position')
-                return
+            # Clear position when hiding
+            if hasattr(sm, 'upgrade_panel_position'):
+                delattr(sm, 'upgrade_panel_position')
+            return
         else:
             # Update show time while hovering
             sm.upgrade_panel_show_time = sm.game_time
@@ -715,7 +511,7 @@ class RenderSystem(esper.Processor):
         pygame.draw.rect(self.window, (120, 120, 180), panel_rect, 2)
         
         # Title
-        title_surf = pygame.font.SysFont("Arial", 13, bold=True).render("UPGRADES", True, (180, 180, 255))
+        title_surf = pygame.font.SysFont("Arial", 14, bold=True).render(panel_title, True, (180, 180, 255))
         self.window.blit(title_surf, (panel_x + 10, panel_y + 8))
         
         # Get player faction info
@@ -988,7 +784,7 @@ class RenderSystem(esper.Processor):
         # Drag Selection Box
         input_sys = None
         for sys in self.world._processors:
-            if isinstance(sys, InputSystem):
+            if sys.__class__.__name__ == 'InputSystem':
                 input_sys = sys
                 break
 
@@ -998,22 +794,19 @@ class RenderSystem(esper.Processor):
             rect.normalize()
             pygame.draw.rect(self.window, COLOR_SELECTION, rect, 1)
 
-            # Circular Progress Bar for Castle Build
-            if input_sys.hold_timer > 0.1:
-                prog = min(1.0, input_sys.hold_timer / CASTLE_CONFIRM_TIME)
-                center = input_sys.drag_current
-                radius = 20
-                
-                # Background
-                pygame.draw.circle(self.window, (50, 50, 50), center, radius, 4)
-                
-                # Arc
-                # 0 is Right, -PI/2 is Up
-                start_angle = -math.pi / 2
-                stop_angle = start_angle + (prog * 2 * math.pi)
-                
-                arc_rect = pygame.Rect(center[0]-radius, center[1]-radius, radius*2, radius*2)
-                pygame.draw.arc(self.window, (0, 255, 0), arc_rect, start_angle, stop_angle, 4)
+        # Circular Progress Bar for Hold Action (Build or Select)
+        if input_sys and input_sys.is_holding and input_sys.hold_timer > 0.1:
+            prog = min(1.0, input_sys.hold_timer / 0.4) # 0.4s threshold
+            center = input_sys.drag_current
+            radius = 20
+            
+            # Draw bg
+            pygame.draw.circle(self.window, (100, 100, 100), center, radius, 2)
+            
+            # Draw arc
+            rect = pygame.Rect(center[0] - radius, center[1] - radius, radius * 2, radius * 2)
+            angle = 360 * prog
+            pygame.draw.arc(self.window, (0, 255, 255), rect, math.radians(-90), math.radians(-90 + angle), 4)             
 
         # HUD
         timer_text = f"Time: {int(sm.game_time // 60)}:{int(sm.game_time % 60):02d}"
@@ -1227,7 +1020,7 @@ class AISystem(esper.Processor):
         val = 0.4 + (k - resources) / k
         if random.uniform(0, 1) < val:
             return
-        print(val)
+        # print(val)
         
         # Get upgrade system
         upgrade_sys = None
