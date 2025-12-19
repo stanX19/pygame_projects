@@ -73,7 +73,7 @@ CASTLE_HP = 500
 CASTLE_BUILD_COST = 10
 CASTLE_BUILD_REQ = 10 # Units needed to merge
 CASTLE_DMG = 10
-CASTLE_RANGE = 120.0
+CASTLE_RANGE = TILE_SIZE * 2
 CASTLE_CD = 0.5     # Faster attack than units relative to dmg
 CASTLE_CONFIRM_TIME = 1.0       # Hold to start build
 CASTLE_CONSTRUCTION_TIME = 5.0  # Time to build after confirmation
@@ -83,7 +83,7 @@ CASTLE_CONSTRUCTION_TIME = 5.0  # Time to build after confirmation
 RES_POINT_RADIUS = 24
 RES_POINT_HP = 200
 RES_ATK_DMG = 5
-RES_ATK_RANGE = 30.0
+RES_ATK_RANGE = TILE_SIZE / 2
 RES_ATK_CD = 0.25
 RES_GENERATION_RATE = 1.0 # Resource per second
 
@@ -92,7 +92,7 @@ SEPARATION_FORCE = 500.0 # How hard units push away from each other
 
 # Upgrade System
 UPGRADE_COST_BASE = 5  # Base cost for first upgrade
-UPGRADE_COST_MULTIPLIER = 2  # Cost multiplier per level
+UPGRADE_COST_MULTIPLIER = 1.5  # Cost multiplier per level
 RANGE_UPGRADE_COST_MULTIPLIER = 10
 
 # Max upgrade levels
@@ -106,9 +106,9 @@ UNIT_SPEED_BONUS = 10  # +10 speed per level
 UNIT_RANGE_BONUS = 30  # +30 range per level
 
 # Castle Upgrades (per level bonuses)
-CASTLE_HP_BONUS = 100   # +100 HP per level
-CASTLE_DMG_BONUS = 5    # +5 damage per level
-CASTLE_CD_BONUS = -0.05 # -0.05s cooldown per level
+CASTLE_HP_BONUS = 200   # HP per level
+CASTLE_DMG_BONUS = 10    # damage per level
+CASTLE_CD_BONUS = -CASTLE_CD / 5 # cooldown per level
 
 # Resource Point Upgrades
 RESOURCE_RATE_BONUS = 0.5  # +0.5 res/sec per level
