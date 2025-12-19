@@ -36,6 +36,13 @@ FACTION_NEUTRAL = "neutral"
 NUM_PLAYERS = 6
 MAX_UNITS = 300
 
+# Map Generation
+RESOURCES_PER_CASTLE = 3   # Guaranteed resources near each castle
+EXTRA_RESOURCES = 0        # Random resources scattered around the map
+MIN_RESOURCE_DIST = 5      # Minimum distance for extra resources from castles
+CASTLE_DIST_DIFF_THRESHOLD = 1 # Max difference for castle nearest-neighbor distances
+MIN_PATH_TO_CASTLE = 1     # Minimum disjoint path to other castles
+
 # Bot Colors (Hardcoded distinct colors to avoid Player's Royal Blue)
 BOT_COLORS = [
     (220, 20, 60),    # Crimson (Red-ish)
@@ -50,15 +57,9 @@ BOT_COLORS = [
 ]
 # Game Rules
 MATCH_DURATION = 300  # 5 minutes in seconds
-SUDDEN_DEATH_TIME = 240 # 4 minutes
+SUDDEN_DEATH_TIME = 180 # 3 minutes
 STARTING_UNITS = 10
 STARTING_RESOURCES = 50
-
-# Map Generation
-RESOURCES_PER_CASTLE = 3   # Guaranteed resources near each castle
-EXTRA_RESOURCES = 0        # Random resources scattered around the map
-MIN_RESOURCE_DIST = 5      # Minimum distance for extra resources from castles
-CASTLE_DIST_DIFF_THRESHOLD = 3 # Max difference for castle nearest-neighbor distances
 
 # Unit Stats
 UNIT_RADIUS = 8

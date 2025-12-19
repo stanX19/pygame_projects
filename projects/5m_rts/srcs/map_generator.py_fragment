@@ -1,0 +1,27 @@
+
+    def _propagate_exclusion_constraints(self, x, y, value):
+        """
+        Propagate exclusion constraints (e.g. hills repel rivers and vice versa).
+        When a hill is placed, remove rivers from neighbor domains.
+        When a river is placed, remove hills from neighbor domains.
+        """
+        hill_types = {'hill', 'hill_center'}
+        river_types = {'river', 'river_vertical', 'river_horizontal'}
+        
+        target_removal = None
+        if value in hill_types:
+            target_removal = river_types
+        elif value in river_types:
+            target_removal = hill_types
+            
+        if target_removal:
+            # Check all 8 neighbors
+            for dx in [-1, 0, 1]:
+                for dy in [-1, 0, 1]:
+                    if dx == 0 and dy == 0:
+                        continue
+                    nx, ny = x + dx, y + dy
+                    if 0 <= nx < self.cols and 0 <= ny < self.rows:
+                        if self.grid[ny][nx] is None:
+                            # Remove incompatible types from neighbor domain
+                            self.domains[ny][nx] -= target_removal
