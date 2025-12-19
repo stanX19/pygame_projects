@@ -2,7 +2,7 @@ import sys
 import os
 
 # Adjust path to find modules
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), 'srcs')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../srcs')))
 
 import config
 from map_generator import TileMapGenerator
@@ -20,7 +20,7 @@ def main():
         print("FAILED: Map generation returned None/Empty")
         return
         
-    print("\n--- Verifying Connectivity Rules ---")
+    print("\n--- Verifying Connectivity Rule ---")
     
     # Re-run the internal check on the final map
     # We need to reverse-engineer the 'obstacles' set for the internal function
@@ -37,20 +37,16 @@ def main():
         # Grid should be fine?
     
     # Manually run _check_min_2_paths
-    result_2path = gen._check_min_2_paths(obstacle_set)
+    result = gen._check_min_2_paths(obstacle_set)
     
-    if result_2path:
-        print("✓ SUCCESS: _check_min_2_paths returned True.")
+    if result:
+        print("✓ SUCCESS: _check_min_2_paths returned True on generated map.")
     else:
-        print("✗ FAILURE: _check_min_2_paths returned False!")
-
-    # Internal validation logic for distance uniformity
-    print(f"Checking Castle Distance Uniformity (Threshold < {config.CASTLE_DIST_STD_DEV_THRESHOLD})...")
-    result_dist = gen._validate_castle_distance_uniformity(obstacle_set)
-    if result_dist:
-        print("✓ SUCCESS: _validate_castle_distance_uniformity returned True.")
-    else:
-        print("✗ FAILURE: _validate_castle_distance_uniformity returned False!")
+        print("✗ FAILURE: _check_min_2_paths returned False on generated map!")
+        print("Reasons:")
+        # We can add debug logic here or rely on the fact that if it failed, map generation shouldn't have returned it (unless logic is flawed)
+        # Note: generate_map DOES call _check_min_2_paths internally via constraints.
+        # So if we got a map, it SHOULD pass.
     
     print(f"Castles: {len(castles)}")
     print("Verification script complete.")

@@ -344,6 +344,12 @@ class TileMapGenerator:
         for castle_x, castle_y in self.castles_placed:
             queue.append((castle_x, castle_y))
             visited.add((castle_x, castle_y))
+
+        # add four corners
+        queue.append((0, 0))
+        queue.append((self.cols - 1, 0))
+        queue.append((0, self.rows - 1))
+        queue.append((self.cols - 1, self.rows - 1))
         
         # 4-directional movement (cardinal directions)
         directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]
@@ -455,17 +461,15 @@ class TileMapGenerator:
                     failure_reason = "recursive backtrack failed"
             
             # BACKTRACK
-            if num_assigned < 100:  # Only debug first 100 tiles to avoid spam
-                # Show context about surrounding tiles for better debugging
-                neighbors_info = []
-                for dx, dy in [(0,1), (1,0), (0,-1), (-1,0)]:
-                    nx, ny = x + dx, y + dy
-                    if 0 <= nx < self.cols and 0 <= ny < self.rows:
-                        neighbors_info.append(f"{self.grid[ny][nx] or 'None'}")
-                    else:
-                        neighbors_info.append("OOB")
-                neighbors_str = f"[{','.join(neighbors_info)}]"
-                print(f"  DEBUG: Backtrack at ({x},{y}) value={value} neighbors={neighbors_str}: {failure_reason}")
+            neighbors_info = []
+            for dx, dy in [(0,1), (1,0), (0,-1), (-1,0)]:
+                nx, ny = x + dx, y + dy
+                if 0 <= nx < self.cols and 0 <= ny < self.rows:
+                    neighbors_info.append(f"{self.grid[ny][nx] or 'None'}")
+                else:
+                    neighbors_info.append("OOB")
+            neighbors_str = f"[{','.join(neighbors_info)}]"
+            print(f"  DEBUG: Backtrack at ({x},{y}) value={value} neighbors={neighbors_str}: {failure_reason}")
             
             self.grid = saved_grid
             self.domains = saved_domains
@@ -485,18 +489,7 @@ class TileMapGenerator:
         
         # Resource-specific constraints
         if value == 'resource':
-            # Guaranteed resources already checked during placement.
-            # This check is mainly for EXTRA resources placed by CSP.
-            
-            # Check spacing from ALL other resources (guaranteed + extra)
-            # Use MIN_RESOURCE_DIST from config for extra resources
-            # But wait, if we are close to a guaranteed resource, we should fail.
-            # Actually, standardizing: any new resource must be far from others.
-            for rx, ry in self.resources_placed[:-1]:  # Exclude current
-                # Note: self.resources_placed includes the current one if we just appended it? 
-                # Yes, _assign_tiles_backtrack appends before calling this.
-                # So we check against all others.
-                
+            for rx, ry in self.resources_placed[:-1]:
                 # Check distance to other resources
                 if max(abs(x - rx), abs(y - ry)) < 3: # Keep minimum 3 for any resource pair
                      self._last_constraint_failure = "resource too close to another"
@@ -535,20 +528,11 @@ class TileMapGenerator:
             if self._is_adjacent_to_castle(x, y):
                 self._last_constraint_failure = "adjacent to castle"
                 return False
-            
-            # Global connectivity check: Only check for obstacles that could block paths
-            # Don't check connectivity for every single terrain tile - too strict!
-            # Only check if we're placing a significant obstacle
-            if value in ['river_vertical', 'river_horizontal', 'river', 'hill_center', 'hill']:
-                # Only run expensive connectivity check occasionally
-                total_tiles = self.rows * self.cols
-                assigned_count = sum(1 for row in self.grid for tile in row if tile is not None)
-                
-                # Only check connectivity every 10 tiles or for critical terrain
-                if assigned_count % 10 == 0 or len(self.castles_placed) > 0:
-                    if not self._check_global_connectivity():
-                        self._last_constraint_failure = "global connectivity violated"
-                        return False
+
+        if not self._check_global_connectivity():
+            if not self._last_constraint_failure:
+                self._last_constraint_failure = "global connectivity failed"
+            return False
         
         return True
     
@@ -579,15 +563,28 @@ class TileMapGenerator:
         for resource in self.resources_placed:
             if resource not in reachable:
                 return False
+    
+        # 1. Army traversal distance
+        if not self._validate_army_distance(obstacles):
+            return False
         
-        # REMOVED: Check for empty tile reachability
-        # Empty tiles don't need to be accessible - they're just decorative terrain.
-        # This was causing false rejections when placing hills/rivers surrounded by empty tiles.
+        # 2. Connectivity
+        if not self._validate_connectivity(obstacles):
+            return False
         
+        # 3. 2-Path Connectivity Rule
         if not self._check_min_2_paths(obstacles):
             self._last_constraint_failure = "castle <2 disjoint paths"
             return False
+            
+        # 4. Castle Distance Uniformity (Anomaly Detection)
+        if not self._validate_castle_distance_uniformity(obstacles):
+             return False
 
+        # 5. Resource fairness
+        if not self._validate_resource_fairness():
+            return False
+        
         return True
     
     def _flood_fill(self, start, obstacles):
@@ -1174,20 +1171,48 @@ class TileMapGenerator:
                             # Remove non-hill types from domain, keep only hill_center and hill
                             self.domains[nny][nnx] &= {'hill_center', 'hill', 'empty'}
     
-    def _validate_all_global_constraints(self, obstacle_set):
-        """Validate all global constraints after generation"""
-        # 1. Army traversal distance
-        if not self._validate_army_distance(obstacle_set):
-            return False
+
+    def _validate_castle_distance_uniformity(self, obstacles):
+        """
+        Check if castle distances are uniform (no anomalies).
+        Calculates the nearest neighbor distance for each castle.
+        Rejects if Standard Deviation of these distances > Threshold.
+        """
+        if len(self.castles_placed) < 3:
+            return True # Not enough data for meaningful std dev
+            
+        min_distances = []
+        max_distances = []
+        total_distances = []
+        all_distances = []
+        threat_levels = []
+        for i, c1 in enumerate(self.castles_placed):
+            distances = []
+            for j, c2 in enumerate(self.castles_placed):
+                if i == j: continue
+                
+                # Get path distance
+                dist = self._bfs_distance(c1, c2, obstacles)
+                distances.append(dist)
+            
+            min_distances.append(min(distances))
+            max_distances.append(max(distances))
+            total_distances.append(sum(distances))
+            all_distances.extend(distances)
+            threat_levels.append(sum(1/d for d in distances))
         
-        # 2. Connectivity
-        if not self._validate_connectivity(obstacle_set):
+        # values = threat_levels
+        # thres = 0.05 #config.CASTLE_DIST_DIFF_THRESHOLD #* len(self.castles_placed)
+        values = min_distances
+        thres = config.CASTLE_DIST_DIFF_THRESHOLD
+        mean = sum(values) / len(values)
+        std_dev = (sum((x - mean) ** 2 for x in values) / len(values)) ** 0.5
+        diff = max(values) - min(values)
+        print([f"{x:.2f}" for x in threat_levels], diff, thres)
+        if diff > thres:
+            self._last_constraint_failure = f"castle dist anomaly (std_dev={std_dev} > 1)"
             return False
-        
-        # 3. Resource fairness
-        if not self._validate_resource_fairness():
-            return False
-        
+            
         return True
     
     def _validate_army_distance(self, obstacles):
@@ -1203,7 +1228,7 @@ class TileMapGenerator:
         """Calculate BFS path distance"""
         queue = deque([(start, 0)])
         visited = {start}
-        directions = [(0,1), (1,0), (0,-1), (-1,0), (1,1), (-1,-1), (1,-1), (-1,1)]
+        directions = [(0,1), (1,0), (0,-1), (-1,0)]#, (1,1), (-1,-1), (1,-1), (-1,1)]
         
         while queue:
             (x, y), dist = queue.popleft()
@@ -1212,10 +1237,11 @@ class TileMapGenerator:
             
             for dx, dy in directions:
                 nx, ny = x + dx, y + dy
+                additional_dist = 2 if (dx, dy) in [(1,1), (-1,-1), (1,-1), (-1,1)] else 1
                 if (0 <= nx < self.cols and 0 <= ny < self.rows and
                     (nx, ny) not in visited and (nx, ny) not in obstacles):
                     visited.add((nx, ny))
-                    queue.append(((nx, ny), dist + 1))
+                    queue.append(((nx, ny), dist + additional_dist))
         
         return float('inf')
     

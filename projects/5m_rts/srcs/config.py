@@ -33,7 +33,7 @@ COLOR_TEXT = (255, 255, 255)
 # Using UUID-based hashes for unique faction identification
 FACTION_PLAYER = str(uuid.uuid4())[:8]
 FACTION_NEUTRAL = "neutral"
-NUM_PLAYERS = 4
+NUM_PLAYERS = 6
 MAX_UNITS = 300
 
 # Bot Colors (Hardcoded distinct colors to avoid Player's Royal Blue)
@@ -55,9 +55,10 @@ STARTING_UNITS = 10
 STARTING_RESOURCES = 50
 
 # Map Generation
-RESOURCES_PER_CASTLE = 2   # Guaranteed resources near each castle
-EXTRA_RESOURCES = 3        # Random resources scattered around the map
+RESOURCES_PER_CASTLE = 3   # Guaranteed resources near each castle
+EXTRA_RESOURCES = 0        # Random resources scattered around the map
 MIN_RESOURCE_DIST = 5      # Minimum distance for extra resources from castles
+CASTLE_DIST_DIFF_THRESHOLD = 3 # Max difference for castle nearest-neighbor distances
 
 # Unit Stats
 UNIT_RADIUS = 8
