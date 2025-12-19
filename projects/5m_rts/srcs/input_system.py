@@ -377,9 +377,45 @@ class InputSystem(esper.Processor):
         if self.world.has_component(ent, Selectable):
             self.world.component_for_entity(ent, Selectable).selected = True
             
+            # Precise menu height estimation to prevent gaps/overflow
+            # Must match RenderSystem logic: Title(30) + Items * 38 + Padding(15)
+            est_height = 45 # Base height (Title only)
+            
+            try:
+                ident = self.world.component_for_entity(ent, Identity)
+                faction = ident.faction
+                is_player = (faction == self.scene_manager.player_faction_id)
+                
+                if ident.type == 'castle':
+                    if is_player:
+                        # Autopilot(1) + 4 upgrades = 5 items
+                        est_height = 30 + (5 * 38) + 15
+                    else:
+                        est_height = 45
+                        
+                elif ident.type == 'resource':
+                    if is_player:
+                        # 1 upgrade (Res Speed)
+                        est_height = 30 + (1 * 38) + 15
+                    else:
+                        est_height = 45 # Just title
+                        
+                elif ident.type == 'unit':
+                     if is_player:
+                         # 5 upgrades
+                         est_height = 30 + (5 * 38) + 15
+                     else:
+                         est_height = 45
+                         
+                elif ident.type == 'empty_tile':
+                     # 1 item (Build Castle)
+                     est_height = 30 + (1 * 38) + 15
+            except KeyError:
+                pass
+
             # Calculate initial panel position
             mouse_pos = pygame.mouse.get_pos()
-            pos = self._calculate_panel_position(mouse_pos)
+            pos = self._calculate_panel_position(mouse_pos, height_estimate=est_height)
             
             # Store position for render system
             self.scene_manager.upgrade_panel_position = pos

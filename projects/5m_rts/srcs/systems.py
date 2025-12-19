@@ -566,14 +566,30 @@ class RenderSystem(esper.Processor):
         for i, (label, key, method_name, color) in enumerate(upgrade_defs):
             button_x = panel_x + 10
             button_y = panel_y + 30 + i * spacing_y
-            current_level = upgrades.get(key, 0)
-            
-            # Use special cost function for range upgrades (5x more expensive)
-            if key == 'unit_range':
-                cost = upgrade_sys.get_range_upgrade_cost(current_level)
+            # Button logic
+            if key is None:
+                # Action Button (no level, no cost)
+                current_level = 0
+                cost = 0
+                main_text = label
+                cost_text = ""
             else:
-                cost = upgrade_sys.get_upgrade_cost(current_level)
-            
+                # Upgrade Button
+                current_level = upgrades.get(key, 0)
+                
+                # Use special cost function for range upgrades (5x more expensive)
+                if key == 'unit_range':
+                    cost = upgrade_sys.get_range_upgrade_cost(current_level)
+                else:
+                    cost = upgrade_sys.get_upgrade_cost(current_level)
+
+                if current_level >= MAX_UPGRADE_LEVEL:
+                    main_text = f"{label} [MAX]"
+                    cost_text = ""
+                else:
+                    main_text = f"{label} Lv{current_level}"
+                    cost_text = f"Cost: ${cost}"
+
             # Button rectangle
             button_rect = pygame.Rect(button_x, button_y, button_width, button_height)
             
@@ -586,7 +602,7 @@ class RenderSystem(esper.Processor):
             button_hover = button_rect.collidepoint(mouse_pos)
             
             # Button color based on affordability and hover
-            if current_level >= MAX_UPGRADE_LEVEL:
+            if current_level >= MAX_UPGRADE_LEVEL and key is not None:
                 btn_color = (40, 40, 40)
                 text_color = (120, 120, 120)
             elif resources >= cost:
@@ -601,18 +617,10 @@ class RenderSystem(esper.Processor):
             
             # Draw button
             pygame.draw.rect(self.window, btn_color, button_rect)
-            if button_hover and current_level < MAX_UPGRADE_LEVEL:
+            if button_hover and (current_level < MAX_UPGRADE_LEVEL or key is None):
                 pygame.draw.rect(self.window, (255, 255, 255), button_rect, 2)
             else:
                 pygame.draw.rect(self.window, color, button_rect, 2)
-            
-            # Draw text
-            if current_level >= MAX_UPGRADE_LEVEL:
-                main_text = f"{label} [MAX]"
-                cost_text = ""
-            else:
-                main_text = f"{label} Lv{current_level}"
-                cost_text = f"Cost: ${cost}"
             
             # Main label
             text_surf = pygame.font.SysFont("Arial", 13, bold=True).render(main_text, True, text_color)
