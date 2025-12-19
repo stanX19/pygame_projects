@@ -464,58 +464,13 @@ class RenderSystem(esper.Processor):
         spacing_y = 38
 
         # Determine title and upgrades based on faction and type
-        is_player_owned = (selected_faction == sm.player_faction_id)
         upgrade_defs = []
         panel_title = ""
         
-        if selected_type == 'castle':
-            if is_player_owned:
-                panel_title = "Your Castle"
-                
-                # Check for Autopilot
-                has_autopilot = False
-                if selected_entity is not None and self.world.has_component(selected_entity, AIController):
-                    has_autopilot = True
-                
-                autopilot_btn = ('stop autopilot', None, 'toggle_autopilot', (100, 100, 100)) if has_autopilot \
-                           else ('autopilot', None, 'toggle_autopilot', (150, 150, 150))
-
-                upgrade_defs = [
-                    autopilot_btn,
-                    ('Castle HP', 'castle_hp', 'upgrade_castle_hp', (100, 150, 255)),
-                    ('Castle Dmg', 'castle_dmg', 'upgrade_castle_dmg', (255, 100, 100)),
-                    ('Castle CD', 'castle_cd', 'upgrade_castle_cd', (150, 255, 150)),
-                ]
-            else:
-                panel_title = "Enemy Castle"
-                upgrade_defs = []
-        elif selected_type == 'resource':
-            if is_player_owned:
-                panel_title = "Resource Point (Captured)"
-                upgrade_defs = [
-                    ('Res Speed', 'resource_rate', 'upgrade_resource_rate', (255, 215, 0)),
-                ]
-            else:
-                panel_title = "Resource Point"
-                upgrade_defs = []
-        elif selected_type == 'unit':
-            if is_player_owned:
-                panel_title = "Your Units"
-                upgrade_defs = [
-                    ('Unit HP', 'unit_hp', 'upgrade_unit_hp', (100, 150, 255)),
-                    ('Unit Damage', 'unit_dmg', 'upgrade_unit_dmg', (255, 100, 100)),
-                    ('Attack Speed', 'unit_cd', 'upgrade_unit_cd', (150, 255, 150)),
-                    ('Attack Range', 'unit_range', 'upgrade_unit_range', (255, 150, 255)),
-                    ('Move Speed', 'unit_speed', 'upgrade_unit_speed', (255, 200, 100)),
-                ]
-            else:
-                panel_title = "Enemy Units"
-                upgrade_defs = []
-        elif selected_type == 'empty_tile':
-            panel_title = "Empty Tile"
-            upgrade_defs = [
-                ('Build Castle', None, 'build_castle', (100, 200, 100)),
-            ]
+        if selected_type == 'empty_tile':
+             panel_title, upgrade_defs = upgrade_sys.get_empty_tile_options()
+        elif selected_entity is not None:
+             panel_title, upgrade_defs = upgrade_sys.get_entity_options(selected_entity)
         
         # Calculate panel dimensions (include title)
         title_height = 30

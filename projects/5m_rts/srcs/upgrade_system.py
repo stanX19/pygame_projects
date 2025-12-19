@@ -241,6 +241,77 @@ class UpgradeSystem(esper.Processor):
         level = self.sm.faction_upgrades[faction_id]['castle_move']
         return CASTLE_MOVE_SPEED_MULTIPLIER + (CASTLE_MOVE_UPGRADE_BONUS * level)
     
+    def get_entity_options(self, ent):
+        """
+        Get the list of upgrade options and title for the given entity.
+        Returns: (title, list_of_options)
+        """
+        if not self.world.entity_exists(ent):
+            return "Unknown", []
+
+        try:
+            ident = self.world.component_for_entity(ent, Identity)
+            faction = ident.faction
+            type = ident.type
+            
+            is_player_owned = (faction == self.sm.player_faction_id)
+            
+            if type == 'castle':
+                if is_player_owned:
+                    panel_title = "Your Castle"
+                    
+                    # Check for Autopilot
+                    has_autopilot = False
+                    if self.world.has_component(ent, AIController):
+                        has_autopilot = True
+                    
+                    autopilot_btn = ('stop autopilot', None, 'toggle_autopilot', (100, 100, 100)) if has_autopilot \
+                               else ('autopilot', None, 'toggle_autopilot', (150, 150, 150))
+
+                    return panel_title, [
+                        autopilot_btn,
+                        ('Castle HP', 'castle_hp', 'upgrade_castle_hp', (100, 150, 255)),
+                        ('Castle Dmg', 'castle_dmg', 'upgrade_castle_dmg', (255, 100, 100)),
+                        ('Castle CD', 'castle_cd', 'upgrade_castle_cd', (150, 255, 150)),
+                    ]
+                else:
+                    return "Enemy Castle", []
+                    
+            elif type == 'resource':
+                if is_player_owned:
+                     return "Resource Point (Captured)", [
+                        ('Res Speed', 'resource_rate', 'upgrade_resource_rate', (255, 215, 0)),
+                    ]
+                else:
+                    return "Resource Point", []
+                    
+            elif type == 'unit':
+                if is_player_owned:
+                    return "Your Units", [
+                        ('Unit HP', 'unit_hp', 'upgrade_unit_hp', (100, 150, 255)),
+                        ('Unit Damage', 'unit_dmg', 'upgrade_unit_dmg', (255, 100, 100)),
+                        ('Attack Speed', 'unit_cd', 'upgrade_unit_cd', (150, 255, 150)),
+                        ('Attack Range', 'unit_range', 'upgrade_unit_range', (255, 150, 255)),
+                        ('Move Speed', 'unit_speed', 'upgrade_unit_speed', (255, 200, 100)),
+                    ]
+                else:
+                    return "Enemy Units", []
+            
+            # Add handling for empty_tile if it is passed as a type in ident (unlikely but safe)
+            elif type == 'empty_tile':
+                return self.get_empty_tile_options()
+                
+        except KeyError:
+            pass
+            
+        return "", []
+
+    def get_empty_tile_options(self):
+        """Get options for an empty tile selection"""
+        return "Empty Tile", [
+            ('Build Castle', None, 'build_castle', (100, 200, 100)),
+        ]
+
     def process(self):
         """
         This system doesn't run every frame - it's called when upgrades are purchased.

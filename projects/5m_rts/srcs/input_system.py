@@ -377,41 +377,23 @@ class InputSystem(esper.Processor):
         if self.world.has_component(ent, Selectable):
             self.world.component_for_entity(ent, Selectable).selected = True
             
-            # Precise menu height estimation to prevent gaps/overflow
-            # Must match RenderSystem logic: Title(30) + Items * 38 + Padding(15)
-            est_height = 45 # Base height (Title only)
+            # Use UpgradeSystem for exact height calculation
+            est_height = 45 # Default fallback
             
-            try:
-                ident = self.world.component_for_entity(ent, Identity)
-                faction = ident.faction
-                is_player = (faction == self.scene_manager.player_faction_id)
-                
-                if ident.type == 'castle':
-                    if is_player:
-                        # Autopilot(1) + 4 upgrades = 5 items
-                        est_height = 30 + (5 * 38) + 15
-                    else:
-                        est_height = 45
-                        
-                elif ident.type == 'resource':
-                    if is_player:
-                        # 1 upgrade (Res Speed)
-                        est_height = 30 + (1 * 38) + 15
-                    else:
-                        est_height = 45 # Just title
-                        
-                elif ident.type == 'unit':
-                     if is_player:
-                         # 5 upgrades
-                         est_height = 30 + (5 * 38) + 15
-                     else:
-                         est_height = 45
-                         
-                elif ident.type == 'empty_tile':
-                     # 1 item (Build Castle)
-                     est_height = 30 + (1 * 38) + 15
-            except KeyError:
-                pass
+            # Find upgrade system
+            upgrade_sys = None
+            for processor in self.world._processors:
+                if processor.__class__.__name__ == 'UpgradeSystem':
+                    upgrade_sys = processor
+                    break
+            
+            if upgrade_sys:
+                try:
+                    title, options = upgrade_sys.get_entity_options(ent)
+                    # Title(30) + Items * 38 + Padding(15)
+                    est_height = 30 + (len(options) * 38) + 15
+                except:
+                    pass
 
             # Calculate initial panel position
             mouse_pos = pygame.mouse.get_pos()
@@ -435,8 +417,22 @@ class InputSystem(esper.Processor):
         # Store the empty tile position for menu rendering and construction
         self.scene_manager.selected_empty_tile = (mouse_pos[0], mouse_pos[1])
         
+        # Use UpgradeSystem for exact height calculation
+        est_height = 100 # Default
+        
+        # Find upgrade system
+        upgrade_sys = None
+        for processor in self.world._processors:
+             if processor.__class__.__name__ == 'UpgradeSystem':
+                 upgrade_sys = processor
+                 break
+        
+        if upgrade_sys:
+             title, options = upgrade_sys.get_empty_tile_options()
+             est_height = 30 + (len(options) * 38) + 15
+        
         # Calculate panel position
-        pos = self._calculate_panel_position(mouse_pos, height_estimate=100)
+        pos = self._calculate_panel_position(mouse_pos, height_estimate=est_height)
         
         # Store position for render system
         self.scene_manager.upgrade_panel_position = pos
