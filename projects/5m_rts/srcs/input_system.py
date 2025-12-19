@@ -73,8 +73,8 @@ class InputSystem(esper.Processor):
         self.drag_start = mouse_pos
         self.drag_current = mouse_pos
         
-        # Identify potential target
-        self.interaction_target = self._get_entity_at(mouse_pos)
+        # Identify potential target (ignore player units for hold gesture)
+        self.interaction_target = self._get_entity_at(mouse_pos, ignore_player_units=True)
         
         # Start Holding State
         self.is_holding = True
@@ -103,20 +103,16 @@ class InputSystem(esper.Processor):
             self.selecting = False
 
     def _trigger_hold_action(self):
-        # 1. If Target supports HOLD -> Select IT
-        handled_hold_select = False
+        # Hold gesture always shows a menu
         if self.interaction_target:
-            mask = 0
+            # Entity exists -> select it
             if self.world.has_component(self.interaction_target, Selectable):
                 mask = self.world.component_for_entity(self.interaction_target, Selectable).selection_mask
-                
-            if mask & SELECT_HOLD:
-                self._select_single(self.interaction_target)
-                handled_hold_select = True
-        
-        # 2. If No Target OR Target doesn't support HOLD -> Try Build Castle
-        if not handled_hold_select:
-            self._start_construction()
+                if mask & SELECT_HOLD:
+                    self._select_single(self.interaction_target)
+        else:
+            # Empty space -> select the empty tile
+            self._select_empty_tile()
 
     def _trigger_tap_action(self, ent):
         ident = self.world.component_for_entity(ent, Identity)
@@ -135,13 +131,12 @@ class InputSystem(esper.Processor):
                  if mask & SELECT_CLICK:
                      self._select_single(ent)
 
-    def _start_construction(self):
+    def _start_construction_at(self, x, y):
+        """Start castle construction at the specified position"""
         # 1. Determine Build Site (Snap to Tile)
-        mx, my = self.drag_current
-        
         # Snap to grid
-        grid_x = int(mx // TILE_SIZE)
-        grid_y = int(my // TILE_SIZE)
+        grid_x = int(x // TILE_SIZE)
+        grid_y = int(y // TILE_SIZE)
         
         # Clamp to map bounds
         grid_x = max(0, min(grid_x, MAP_COLS - 1))
@@ -164,22 +159,35 @@ class InputSystem(esper.Processor):
                     self.scene_manager.show_message("Cannot build: Tile Occupied!", (255, 50, 50))
                     return
 
-        # 3. Check Unit Count
-        selected_units = [] # List of (entity, transform)
-        for ent, (trans, sel) in self.world.get_components(Transform, Selectable):
-            if sel.selected:
-                selected_units.append((ent, trans))
+        # 3. Check Unit Count (Local Check)
+        nearby_units = []
+        player_id = self.scene_manager.player_faction_id
         
-        if len(selected_units) < CASTLE_BUILD_REQ:
-            self.scene_manager.show_message(f"Need {CASTLE_BUILD_REQ} units!", (255, 50, 50))
+        # Search for player units inside the tile radius
+        # The tile "radius" for check is slightly larger to be forgiving, but mostly within the tile
+        check_radius = TILE_SIZE * 0.7 
+        
+        for ent, (trans, ident) in self.world.get_components(Transform, Identity):
+            # Must be own unit
+            if ident.type == 'unit' and ident.faction == player_id:
+                # Check distance to tile center
+                dist = math.hypot(trans.x - center_x, trans.y - center_y)
+                if dist < check_radius:
+                    nearby_units.append((ent, trans))
+        
+        # Prioritize units closest to center
+        nearby_units.sort(key=lambda u: math.hypot(u[1].x - center_x, u[1].y - center_y))
+        
+        if len(nearby_units) < CASTLE_BUILD_REQ:
+            self.scene_manager.show_message(f"Need {CASTLE_BUILD_REQ} units in this tile!", (255, 50, 50))
             return
 
         # 4. Check Cost & Start Construction
-        player_id = self.scene_manager.player_faction_id
         if self.scene_manager.resources[player_id] >= CASTLE_BUILD_COST:
             self.scene_manager.resources[player_id] -= CASTLE_BUILD_COST
             
-            units_to_sacrifice = selected_units[:CASTLE_BUILD_REQ]
+            # Select the required number of local units
+            units_to_sacrifice = nearby_units[:CASTLE_BUILD_REQ]
             
             # Create Construction Site
             self.world.create_entity(
@@ -189,22 +197,33 @@ class InputSystem(esper.Processor):
                 Renderable(color=(100, 100, 100), shape='square', layer=0) # Grey placeholder
             )
             
-            # Command units to move to site
+            # Freeze units in place!
             for unit_ent, _ in units_to_sacrifice:
                 # Deselect
                 try:
                     self.world.component_for_entity(unit_ent, Selectable).selected = False
                 except KeyError: pass
                 
-                # Move to center
+                # Stop movement completely
                 try:
                     mov = self.world.component_for_entity(unit_ent, Movement)
-                    mov.target_x = center_x
-                    mov.target_y = center_y
-                    mov.moving = True
+                    mov.moving = False
+                    mov.target_x = None
+                    mov.path = []
+                    
+                    # Also kill velocity
+                    vel = self.world.component_for_entity(unit_ent, Velocity)
+                    vel.vx = 0
+                    vel.vy = 0
                 except KeyError: pass
 
-            print("Construction Started!")
+            # Clear empty tile selection
+            if hasattr(self.scene_manager, 'selected_empty_tile'):
+                delattr(self.scene_manager, 'selected_empty_tile')
+            if hasattr(self.scene_manager, 'upgrade_panel_position'):
+                delattr(self.scene_manager, 'upgrade_panel_position')
+                
+            print("Construction Started with local units!")
         else:
             self.scene_manager.show_message("Not enough Resources!", (255, 50, 50))
 
@@ -242,6 +261,28 @@ class InputSystem(esper.Processor):
                              self.scene_manager.spawn_unit(trans.x, trans.y)
                              break
                      return True
+                
+                # Handle "Build Castle" button
+                elif method_name == 'build_castle':
+                    # Get the stored empty tile position
+                    if hasattr(self.scene_manager, 'selected_empty_tile'):
+                        pos = self.scene_manager.selected_empty_tile
+                        self._start_construction_at(pos[0], pos[1])
+                    return True
+                
+                elif method_name == 'toggle_autopilot':
+                     # Find selected castle
+                     for ent, (sel, ident) in self.world.get_components(Selectable, Identity):
+                         if sel.selected and ident.type == 'castle' and ident.faction == faction_id:
+                             if self.world.has_component(ent, AIController):
+                                 self.world.remove_component(ent, AIController)
+                                 self.scene_manager.show_message("Autopilot Disabled", (200, 200, 200))
+                             else:
+                                 # Enable autopilot (auto spawn and attack)
+                                 self.world.add_component(ent, AIController(auto_spawn=True, auto_attack=True))
+                                 self.scene_manager.show_message("Autopilot Enabled", (0, 255, 0))
+                             break
+                     return True
 
                 # Try to purchase upgrade
                 method = getattr(upgrade_sys, method_name)
@@ -274,13 +315,17 @@ class InputSystem(esper.Processor):
                 mov.target_y = mouse_pos[1]
             mov.moving = True
 
-    def _get_entity_at(self, pos):
-        # Find highest layer entity at position
+    def _get_entity_at(self, pos, ignore_player_units=False):
+        """Find entity at position, prioritizing buildings over units"""
         mx, my = pos
         found_ent = None
-        max_layer = -1
+        min_layer = float('inf')  # Lowest layer wins (buildings before units)
         
         for ent, (trans, ident) in self.world.get_components(Transform, Identity):
+            # Skip player units if requested (for hold gestures)
+            if ignore_player_units and ident.type == 'unit' and ident.faction == self.scene_manager.player_faction_id:
+                continue
+            
             # Allow selecting any entity (player, enemy, neutral)
             dist = math.hypot(trans.x - mx, trans.y - my)
             if dist < trans.radius + 5: # Small buffer
@@ -289,11 +334,39 @@ class InputSystem(esper.Processor):
                 if self.world.has_component(ent, Renderable):
                     layer = self.world.component_for_entity(ent, Renderable).layer
                 
-                if layer > max_layer:
-                    max_layer = layer
+                # Lower layer = higher priority (buildings before units)
+                if layer < min_layer:
+                    min_layer = layer
                     found_ent = ent
         
         return found_ent
+
+    def _calculate_panel_position(self, mouse_pos, height_estimate=200):
+        """Calculate panel position ensuring it stays on screen and doesn't obscure cursor"""
+        x, y = mouse_pos
+        button_width = 180
+        panel_width = button_width + 20
+        
+        # Default: Bottom-Right of cursor
+        # Offset to ensure intersection (cursor inside top-left of menu)
+        panel_x = x - 20
+        panel_y = y - 20
+        
+        # Smart Pivot: If on right half of screen, spawn to Left
+        if x > SCREEN_WIDTH / 2:
+            # Cursor inside top-right of menu
+            panel_x = x - panel_width + 20
+            
+        # Smart Pivot: If on bottom half of screen, spawn Above
+        if y > SCREEN_HEIGHT / 2:
+             # Cursor inside bottom of menu
+             panel_y = y - height_estimate + 20
+             
+        # Clamp to screen to be safe
+        panel_x = max(5, min(panel_x, SCREEN_WIDTH - panel_width - 5))
+        panel_y = max(5, min(panel_y, SCREEN_HEIGHT - height_estimate - 5))
+        
+        return (panel_x, panel_y)
 
     def _select_single(self, ent):
         # Deselect all others first
@@ -304,35 +377,36 @@ class InputSystem(esper.Processor):
         if self.world.has_component(ent, Selectable):
             self.world.component_for_entity(ent, Selectable).selected = True
             
-            # Calculate initial panel position based on current mouse position
+            # Calculate initial panel position
             mouse_pos = pygame.mouse.get_pos()
-            
-            # Panel dimensions (must match render system calculations)
-            button_width = 180
-            panel_width = button_width + 20
-            
-            # Estimate panel height (title + potential upgrade buttons)
-            # This is a rough estimate since we don't know upgrade count yet
-            estimated_panel_height = 200  # Reasonable max height
-            
-            # Position panel near cursor (top-left corner offset)
-            panel_x = mouse_pos[0] - 10
-            panel_y = mouse_pos[1] - 10
-            
-            # Keep within screen bounds
-            if panel_x + panel_width > SCREEN_WIDTH:
-                panel_x = SCREEN_WIDTH - panel_width - 5
-            if panel_y + estimated_panel_height > SCREEN_HEIGHT:
-                panel_y = SCREEN_HEIGHT - estimated_panel_height - 5
-            
-            panel_x = max(5, panel_x)
-            panel_y = max(5, panel_y)
+            pos = self._calculate_panel_position(mouse_pos)
             
             # Store position for render system
-            self.scene_manager.upgrade_panel_position = (panel_x, panel_y)
+            self.scene_manager.upgrade_panel_position = pos
             
             # Show Panel
             self.scene_manager.upgrade_panel_show_time = self.scene_manager.game_time
+
+    def _select_empty_tile(self):
+        """Select an empty tile to show build menu"""
+        # Deselect all entities
+        for e, sel in self.world.get_component(Selectable):
+            sel.selected = False
+        
+        # Get mouse position for the empty tile
+        mouse_pos = pygame.mouse.get_pos()
+        
+        # Store the empty tile position for menu rendering and construction
+        self.scene_manager.selected_empty_tile = (mouse_pos[0], mouse_pos[1])
+        
+        # Calculate panel position
+        pos = self._calculate_panel_position(mouse_pos, height_estimate=100)
+        
+        # Store position for render system
+        self.scene_manager.upgrade_panel_position = pos
+        
+        # Show Panel
+        self.scene_manager.upgrade_panel_show_time = self.scene_manager.game_time
 
     def _finish_selection(self):
         # Calculate selection rect
@@ -358,6 +432,12 @@ class InputSystem(esper.Processor):
         
         # Show upgrade panel if units were selected
         if has_selection:
+            # Calculate panel position for drag selection (at drop point)
+            mouse_pos = pygame.mouse.get_pos()
+            pos = self._calculate_panel_position(mouse_pos)
+            
+            # Store position for render system
+            self.scene_manager.upgrade_panel_position = pos
             self.scene_manager.upgrade_panel_show_time = self.scene_manager.game_time
 
     def _spawn_unit_burst(self, x, y):

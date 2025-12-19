@@ -361,7 +361,21 @@ class ConstructionSystem(esper.Processor):
             
             if alive_count < len(site.units_ids):
                 # Construction Failed
-                self.world.scene_manager.show_message("Construction Failed: Not enough units!", (255, 50, 50))
+                self.world.scene_manager.show_message("Construction Interrupted", (255, 50, 50))
+                
+                # Release survivors (stop them from being frozen if they are still alive)
+                for uid in site.units_ids:
+                    try:
+                        stats = self.world.component_for_entity(uid, Stats)
+                        if not stats.dead:
+                            # Unfreeze
+                            if self.world.has_component(uid, Movement):
+                                mov = self.world.component_for_entity(uid, Movement)
+                                # Just ensure they can move again (though moving=False is already 'idle')
+                                pass
+                    except KeyError:
+                        pass
+                        
                 self.world.delete_entity(ent)
                 continue
 
@@ -423,6 +437,17 @@ class RenderSystem(esper.Processor):
                 selected_entity = ent
                 break  # Only one entity can be selected at a time
         
+        # Check for empty tile selection (if no entity is selected)
+        if not has_selection and hasattr(sm, 'selected_empty_tile'):
+            has_selection = True
+            selected_type = 'empty_tile'
+            selected_faction = None
+            selected_entity = None
+        
+        # Clear empty tile marker if entity is selected
+        if has_selection and selected_type != 'empty_tile' and hasattr(sm, 'selected_empty_tile'):
+            delattr(sm, 'selected_empty_tile')
+        
         # If nothing selected, don't show panel
         if not has_selection:
             # Clear saved position
@@ -446,8 +471,17 @@ class RenderSystem(esper.Processor):
         if selected_type == 'castle':
             if is_player_owned:
                 panel_title = "Your Castle"
+                
+                # Check for Autopilot
+                has_autopilot = False
+                if selected_entity is not None and self.world.has_component(selected_entity, AIController):
+                    has_autopilot = True
+                
+                autopilot_btn = ('stop autopilot', None, 'toggle_autopilot', (100, 100, 100)) if has_autopilot \
+                           else ('autopilot', None, 'toggle_autopilot', (150, 150, 150))
+
                 upgrade_defs = [
-                    ('Spawn Unit', None, 'spawn_unit', (100, 200, 100)),
+                    autopilot_btn,
                     ('Castle HP', 'castle_hp', 'upgrade_castle_hp', (100, 150, 255)),
                     ('Castle Dmg', 'castle_dmg', 'upgrade_castle_dmg', (255, 100, 100)),
                     ('Castle CD', 'castle_cd', 'upgrade_castle_cd', (150, 255, 150)),
@@ -458,8 +492,9 @@ class RenderSystem(esper.Processor):
         elif selected_type == 'resource':
             if is_player_owned:
                 panel_title = "Resource Point (Captured)"
-                # Future: Add resource upgrade options
-                upgrade_defs = []
+                upgrade_defs = [
+                    ('Res Speed', 'resource_rate', 'upgrade_resource_rate', (255, 215, 0)),
+                ]
             else:
                 panel_title = "Resource Point"
                 upgrade_defs = []
@@ -476,6 +511,11 @@ class RenderSystem(esper.Processor):
             else:
                 panel_title = "Enemy Units"
                 upgrade_defs = []
+        elif selected_type == 'empty_tile':
+            panel_title = "Empty Tile"
+            upgrade_defs = [
+                ('Build Castle', None, 'build_castle', (100, 200, 100)),
+            ]
         
         # Calculate panel dimensions (include title)
         title_height = 30
@@ -494,15 +534,18 @@ class RenderSystem(esper.Processor):
         panel_rect = pygame.Rect(panel_x, panel_y, panel_width, panel_height)
         mouse_hovering = panel_rect.collidepoint(mouse_pos)
         
-        # Only show if hovering
-        if not mouse_hovering:
+        # Only show if hovering OR within grace period
+        # If hovering, keep the "last seen" time updated to now
+        if mouse_hovering:
+            sm.upgrade_panel_show_time = sm.game_time
+
+        time_since_hover = sm.game_time - getattr(sm, 'upgrade_panel_show_time', 0.0)
+        
+        if not mouse_hovering and time_since_hover > 0.05:
             # Clear position when hiding
             if hasattr(sm, 'upgrade_panel_position'):
                 delattr(sm, 'upgrade_panel_position')
             return
-        else:
-            # Update show time while hovering
-            sm.upgrade_panel_show_time = sm.game_time
         
         # Panel background
         overlay = pygame.Surface((panel_rect.width, panel_rect.height), pygame.SRCALPHA)

@@ -219,7 +219,7 @@ class UpgradeSystem(esper.Processor):
         level = self.sm.faction_upgrades[faction_id]['resource_rate']
         
         for ent, (ident, gen, upgrades) in self.world.get_components(Identity, ResourceGenerator, Upgrades):
-            if ident.faction == faction_id and ident.type == 'resource':
+            if ident.faction == faction_id and (ident.type == 'resource' or ident.type == 'castle'):
                 upgrades.rate_level = level
                 gen.rate = RES_GENERATION_RATE + (RESOURCE_RATE_BONUS * level)
         

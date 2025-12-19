@@ -582,7 +582,7 @@ def main():
         
         # Player has manual control, bots have AI
         if faction == FACTION_PLAYER:
-            scene.world.add_component(ent, AIController(auto_spawn=False, auto_attack=False))
+             pass # Player controls manual spawn vs autopilot via UI
         else:
             scene.world.add_component(ent, AIController())
     
