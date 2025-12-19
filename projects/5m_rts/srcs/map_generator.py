@@ -584,6 +584,10 @@ class TileMapGenerator:
         # Empty tiles don't need to be accessible - they're just decorative terrain.
         # This was causing false rejections when placing hills/rivers surrounded by empty tiles.
         
+        if not self._check_min_2_paths(obstacles):
+            self._last_constraint_failure = "castle <2 disjoint paths"
+            return False
+
         return True
     
     def _flood_fill(self, start, obstacles):
@@ -802,6 +806,160 @@ class TileMapGenerator:
                 if tile in ['river_vertical', 'river_horizontal', 'river', 'hill_center', 'hill']:
                     obstacles.add((x, y))
         return obstacles
+    
+    def _check_min_2_paths(self, obstacles):
+        """
+        Ensure each castle has at least 2 disjoint paths to the network of other castles.
+        Rule: Starting from 4 adjacent tiles, at least 2 must be able to reach another castle's adjacent tile without intersecting.
+        """
+        if len(self.castles_placed) < 2:
+            return True # Trivial
+
+        # Pre-calculate all valid neighbor tiles for each castle
+        # Valid neighbor = traversable tile (not in obstacles)
+        castle_neighbors = {}
+        for cx, cy in self.castles_placed:
+            nbs = []
+            for dx, dy in [(0,1), (0,-1), (1,0), (-1,0)]:
+                nx, ny = cx + dx, cy + dy
+                # Check bounds
+                if not (0 <= nx < self.cols and 0 <= ny < self.rows):
+                    continue
+                # Check obstacles (note: neighbors cannot be obstacles)
+                if (nx, ny) in obstacles:
+                    continue
+                # Note: unassigned tiles (None) are traversable if they simplify to empty
+                # Assigned tiles must be traversable (empty, castle, resource, fieldland)
+                # But castles are usually obstacles for pathfinding THROUGH them...
+                # However, the rule says "from 4 adjacent tile... reach another castle's adjacent tile".
+                # It doesn't imply going through the castle.
+                # Just checks if path exists.
+                
+                # We need to check if tile is walkable like in _flood_fill
+                tile = self.grid[ny][nx]
+                if tile is None:
+                    if 'empty' not in self.domains[ny][nx]:
+                       continue
+                elif tile not in ['empty', 'castle', 'resource', 'fieldland']:
+                    continue
+                
+                nbs.append((nx, ny))
+            castle_neighbors[(cx, cy)] = nbs
+
+        for start_castle in self.castles_placed:
+            # Sources = neighbors of start_castle
+            sources = castle_neighbors.get(start_castle, [])
+            if len(sources) < 2:
+                # Less than 2 traversable exits -> fail immediately
+                return False
+
+            # Targets = neighbors of all OTHER castles
+            targets = set()
+            for other_c in self.castles_placed:
+                if other_c == start_castle: continue
+                # We union all neighbors of other castles
+                for nb in castle_neighbors.get(other_c, []):
+                    targets.add(nb)
+            
+            if not targets:
+                 continue # Maybe other castles have no exits? Then they will fail their check.
+
+            # Try to find 2 disjoint paths from 'sources' to 'targets'
+            # Path 1
+            path1 = self._bfs_find_path_set_to_set(sources, targets, obstacles, blocked=set())
+            if not path1:
+                 return False
+
+            # Path 2 (cannot use nodes from path1, except potentially targets if we treat them broad, but strictly disjoint means node disjoint)
+            # The rule "without intersecting each other" implies node disjointness.
+            blocked_for_p2 = set(path1)
+            
+            # Note: sources and targets are sets. 
+            # If path1 starts at S1 and ends at T1...
+            # path2 must start at S2 (S2 != S1? Not necessarily, but S1 is in blocked_for_p2, so S2!=S1 is enforced)
+            # path2 end at T2 (T2 != T1? T1 is in blocked_for_p2, so T2!=T1 is enforced)
+            # This is strictly node-disjoint including endpoints.
+            # Usually for "2 paths from A to B", start/end are shared.
+            # But here we are going from Set S to Set T.
+            # "At least 2 must be able to reach... without intersecting".
+            # This implies the paths starting from different neighbors.
+            # So start nodes MUST be different. blocked_for_p2 ensures that.
+            
+            path2 = self._bfs_find_path_set_to_set(sources, targets, obstacles, blocked=blocked_for_p2)
+            if not path2:
+                return False
+                
+        return True
+
+    def _bfs_find_path_set_to_set(self, start_nodes, target_nodes, obstacles, blocked):
+        """
+        Find shortest path from any start_node to any target_node.
+        Returns list of nodes in path (inclusive), or None.
+        blocked: set of nodes to avoid
+        """
+        # Filter starts that are blocked
+        valid_starts = [n for n in start_nodes if n not in blocked]
+        if not valid_starts:
+            return None
+
+        # Standard BFS
+        queue = deque()
+        visited = set(blocked) # Treat blocked as visited
+        parent_map = {} # to reconstruct path
+        
+        for s in valid_starts:
+            queue.append(s)
+            visited.add(s)
+            parent_map[s] = None
+        
+        directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]
+        
+        while queue:
+            curr = queue.popleft()
+            
+            if curr in target_nodes:
+                # Found path! Reconstruct
+                path = []
+                node = curr
+                while node is not None:
+                    path.append(node)
+                    node = parent_map[node]
+                return path[::-1] # Reverse to start->end
+            
+            cx, cy = curr
+            for dx, dy in directions:
+                nx, ny = cx + dx, cy + dy
+                
+                if not (0 <= nx < self.cols and 0 <= ny < self.rows):
+                    continue
+                if (nx, ny) in visited:
+                    continue
+                if (nx, ny) in obstacles:
+                    continue
+                
+                # Check walkable (same logic as usual)
+                # But here we assume obstacles set covers hard obstacles.
+                # What about unassigned domains?
+                # We need to check grid/domain again or trust obstacles set + logic?
+                # _check_min_2_paths passed `obstacles` which comes from _get_current_obstacles
+                # _get_current_obstacles has 'hill', 'river'.
+                # But it doesn't check 'empty' domain for None tiles.
+                # So we must verify walkability.
+                
+                tile = self.grid[ny][nx]
+                if tile is None:
+                    if 'empty' not in self.domains[ny][nx]:
+                        visited.add((nx, ny))
+                        continue
+                elif tile not in ['empty', 'castle', 'resource', 'fieldland']:
+                     visited.add((nx, ny))
+                     continue
+                
+                visited.add((nx, ny))
+                parent_map[(nx, ny)] = curr
+                queue.append((nx, ny))
+                
+        return None
     
     def _check_resource_accessible_from_castles(self, rx, ry):
         """
