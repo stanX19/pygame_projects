@@ -4,12 +4,18 @@ Entry point for 5m War.
 import pygame
 import esper
 import sys
-from config import *
-from components import *
-from input_system import InputSystem, SELECT_CLICK, SELECT_DRAG, SELECT_HOLD
-from systems import *
-from spatial_hash import SpatialHash
+import os
 import collections
+import math
+# Add project root to sys.path to allow 'srcs' imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(current_dir)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+from srcs.config import *
+from srcs.components import *
+from srcs.systems import *
+from srcs.spatial_hash import SpatialHash
 
 class SceneManager:
     def __init__(self):
@@ -528,9 +534,6 @@ def main():
     scene = SceneManager()
 
     # Systems Registration
-    from upgrade_system import UpgradeSystem
-    from projectile_system import ProjectileSystem
-    from cleanup_system import CleanupSystem
     scene.world.add_processor(InputSystem(scene))
     scene.world.add_processor(AISystem(scene))
     scene.world.add_processor(MovementSystem(scene.spatial_hash))

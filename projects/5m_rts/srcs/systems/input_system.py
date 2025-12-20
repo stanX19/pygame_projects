@@ -1,8 +1,8 @@
 import pygame
 import esper
 import math
-from config import *
-from components import *
+from srcs.config import *
+from srcs.components import *
 
 # Selection Bitmasks
 SELECT_NONE = 0

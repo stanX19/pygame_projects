@@ -1,6 +1,6 @@
 import pygame
 import random
-from config import *
+from srcs.config import *
 
 # C-code definitions adapted
 TILE_PATH = 1

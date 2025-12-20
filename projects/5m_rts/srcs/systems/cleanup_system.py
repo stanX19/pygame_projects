@@ -2,8 +2,8 @@
 Cleanup system for handling entity death and capture mechanics.
 """
 import esper
-from config import *
-from components import *
+from srcs.config import *
+from srcs.components import *
 
 
 class CleanupSystem(esper.Processor):

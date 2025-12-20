@@ -4,8 +4,8 @@ Projectile system for handling attack projectiles.
 import esper
 import pygame
 import math
-from config import *
-from components import *
+from srcs.config import *
+from srcs.components import *
 
 
 class ProjectileSystem(esper.Processor):

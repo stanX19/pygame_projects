@@ -3,8 +3,8 @@ Upgrade system for applying and managing upgrades.
 """
 import esper
 import math
-from config import *
-from components import *
+from srcs.config import *
+from srcs.components import *
 
 
 class UpgradeSystem(esper.Processor):
