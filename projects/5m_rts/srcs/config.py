@@ -3,6 +3,7 @@ Global constants and configuration for 5m War.
 """
 import uuid
 import pygame
+import random
 
 # Screen & Map
 # Map dimensions (in tiles)
@@ -33,15 +34,15 @@ COLOR_TEXT = (255, 255, 255)
 # Using UUID-based hashes for unique faction identification
 FACTION_PLAYER = str(uuid.uuid4())[:8]
 FACTION_NEUTRAL = "neutral"
-NUM_PLAYERS = 6
+NUM_PLAYERS = random.randint(2, 6)
 MAX_UNITS = 300
 
 # Map Generation
-RESOURCES_PER_CASTLE = 3   # Guaranteed resources near each castle
-EXTRA_RESOURCES = 0        # Random resources scattered around the map
-MIN_RESOURCE_DIST = 5      # Minimum distance for extra resources from castles
-CASTLE_DIST_DIFF_THRESHOLD = 1 # Max difference for castle nearest-neighbor distances
-MIN_PATH_TO_CASTLE = 1     # Minimum disjoint path to other castles
+RESOURCES_PER_CASTLE = 15 // NUM_PLAYERS         # Guaranteed resources near each castle
+EXTRA_RESOURCES = 0                              # Random resources scattered around the map
+MIN_RESOURCE_DIST = 5                            # Minimum distance for extra resources from castles
+CASTLE_DIST_DIFF_THRESHOLD = 2                   # Max difference for castle nearest-neighbor distances
+MIN_PATH_TO_CASTLE = 3                           # Minimum disjoint path to other castles
 
 # Bot Colors (Hardcoded distinct colors to avoid Player's Royal Blue)
 BOT_COLORS = [
