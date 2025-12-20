@@ -34,7 +34,7 @@ COLOR_TEXT = (255, 255, 255)
 # Using UUID-based hashes for unique faction identification
 FACTION_PLAYER = str(uuid.uuid4())[:8]
 FACTION_NEUTRAL = "neutral"
-NUM_PLAYERS = random.randint(2, 6)
+NUM_PLAYERS = 6#random.randint(2, 6)
 MAX_UNITS = 300
 
 # Map Generation
@@ -43,6 +43,7 @@ EXTRA_RESOURCES = 0                              # Random resources scattered ar
 MIN_RESOURCE_DIST = 5                            # Minimum distance for extra resources from castles
 CASTLE_DIST_DIFF_THRESHOLD = 2                   # Max difference for castle nearest-neighbor distances
 MIN_PATH_TO_CASTLE = 3                           # Minimum disjoint path to other castles
+print(f"resource per castle={RESOURCES_PER_CASTLE}")
 
 # Bot Colors (Hardcoded distinct colors to avoid Player's Royal Blue)
 BOT_COLORS = [
@@ -89,6 +90,7 @@ RES_ATK_DMG = 5
 RES_ATK_RANGE = TILE_SIZE / 2
 RES_ATK_CD = 0.25
 RES_GENERATION_RATE = 1.0 # Resource per second
+RESOURCE_GENERATOR_MAX_CAPACITY = 10
 
 # Physics
 SEPARATION_FORCE = 500.0 # How hard units push away from each other
@@ -112,6 +114,11 @@ UNIT_RANGE_BONUS = 30  # +30 range per level
 CASTLE_HP_BONUS = 200   # HP per level
 CASTLE_DMG_BONUS = 10    # damage per level
 CASTLE_CD_BONUS = -CASTLE_CD / 5 # cooldown per level
+
+# HP Regeneration (HP per second)
+UNIT_HP_REGEN = 0.0
+CASTLE_HP_REGEN = 5  # complte regen in 10 seconds
+RES_POINT_HP_REGEN = 0.0
 
 # Resource Point Upgrades
 RESOURCE_RATE_BONUS = 0.5  # +0.5 res/sec per level

@@ -43,6 +43,9 @@ class CleanupSystem(esper.Processor):
                     # Add resource generator if not present
                     if not self.world.has_component(kill_req.killed_entity, ResourceGenerator):
                         self.world.add_component(kill_req.killed_entity, ResourceGenerator(rate=RES_GENERATION_RATE))
+                        
+                    # Apply Faction Upgrades
+                    self.world.scene_manager.apply_faction_upgrades_to_entity(kill_req.killed_entity, kill_req.killer_faction, 'resource')
                 
                 elif target_ident.type == 'castle':
                     # Capture castle - change faction and restore HP
@@ -54,6 +57,9 @@ class CleanupSystem(esper.Processor):
                     if self.world.has_component(kill_req.killed_entity, Renderable):
                         render = self.world.component_for_entity(kill_req.killed_entity, Renderable)
                         render.color = self.world.scene_manager.get_faction_color(kill_req.killer_faction)
+                    
+                    # Apply Faction Upgrades
+                    self.world.scene_manager.apply_faction_upgrades_to_entity(kill_req.killed_entity, kill_req.killer_faction, 'castle')
 
                     # Update AI Controller
                     is_player = (kill_req.killer_faction == self.world.scene_manager.player_faction_id)

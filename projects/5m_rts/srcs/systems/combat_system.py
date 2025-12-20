@@ -13,10 +13,24 @@ class CombatSystem(esper.Processor):
     def process(self):
         dt = self.world.scene_manager.dt
 
-        # Cooldown management
+        # Cooldown management & HP Regen
         for ent, stats in self.world.get_component(Stats):
             if stats.current_cd > 0:
                 stats.current_cd -= dt
+            
+            # HP Regeneration
+            if stats.hp_regen > 0 and stats.hp < stats.max_hp and not stats.dead:
+                old_hp = stats.hp
+                stats.hp = min(stats.max_hp, stats.hp + stats.hp_regen * dt)
+                
+                # Debug print for castle regen
+                if int(old_hp) != int(stats.hp):
+                    try:
+                        ident = self.world.component_for_entity(ent, Identity)
+                        if ident.type == 'castle':
+                            print(f"Castle {ident.faction[:4]} regen: {old_hp:.1f} -> {stats.hp:.1f}")
+                    except KeyError:
+                        pass
 
         # Combat Logic - Units attacking
         for ent, (trans, ident, stats, vel) in self.world.get_components(Transform, Identity, Stats, Velocity):

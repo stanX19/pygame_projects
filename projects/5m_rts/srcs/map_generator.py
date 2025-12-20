@@ -562,32 +562,33 @@ class TileMapGenerator:
         # Check all castles are reachable
         for castle in self.castles_placed[1:]:
             if castle not in reachable:
+                self._last_constraint_failure = "castle accessibility failed"
                 return False
         
         # Check all resources are reachable
         for resource in self.resources_placed:
             if resource not in reachable:
+                self._last_constraint_failure = "resource accessibility failed"
                 return False
     
         # 1. Army traversal distance
-        if not self._validate_army_distance(obstacles):
-            return False
+        # if not self._validate_army_distance(obstacles):
+        #     self._last_constraint_failure = "army distance failed"
+        #     return False
         
         # 2. Connectivity
         if not self._validate_connectivity(obstacles):
+            self._last_constraint_failure = "castle-to-castle connectivity failed"
             return False
         
         # 3. 2-Path Connectivity Rule
         if not self._check_min_n_disjoint_paths(obstacles):
-            self._last_constraint_failure = "castle <2 disjoint paths"
+            self._last_constraint_failure = "castle-to-castle <2 disjoint paths"
             return False
             
         # 4. Castle Distance Uniformity (Anomaly Detection)
         if not self._validate_castle_distance_uniformity(obstacles):
-             return False
-
-        # 5. Resource fairness
-        if not self._validate_resource_fairness():
+            self._last_constraint_failure = "castle-to-castle distance uniformity failed"
             return False
         
         return True
@@ -1276,27 +1277,6 @@ class TileMapGenerator:
                     queue.append((nx, ny))
         
         return False
-    
-    def _validate_resource_fairness(self):
-        """Check each castle has nearest resource"""
-        for i, castle in enumerate(self.castles_placed):
-            has_nearest = False
-            for resource in self.resources_placed:
-                dist_to_this = max(abs(castle[0] - resource[0]), abs(castle[1] - resource[1]))
-                is_closest = True
-                for j, other_castle in enumerate(self.castles_placed):
-                    if i == j:
-                        continue
-                    dist_to_other = max(abs(other_castle[0] - resource[0]), abs(other_castle[1] - resource[1]))
-                    if dist_to_other <= dist_to_this:
-                        is_closest = False
-                        break
-                if is_closest:
-                    has_nearest = True
-                    break
-            if not has_nearest:
-                return False
-        return True
     
     def _convert_special_tiles(self):
         """Convert special tiles to obstacles"""

@@ -169,7 +169,7 @@ class SceneManager:
                 Movement(speed=UNIT_SPEED),
                 Renderable(color=color, shape='circle', layer=1),
                 Identity(faction=faction_id, type='unit'),
-                Stats(hp=UNIT_HP, max_hp=UNIT_HP, attack_dmg=UNIT_DMG, attack_range=15.0, attack_cd=UNIT_CD),
+                Stats(hp=UNIT_HP, max_hp=UNIT_HP, attack_dmg=UNIT_DMG, attack_range=15.0, attack_cd=UNIT_CD, hp_regen=UNIT_HP_REGEN),
             )
             if faction_id == self.player_faction_id:
                 # Units selectable by CLICK or DRAG
@@ -184,7 +184,7 @@ class SceneManager:
                 Transform(x=x, y=y, radius=CASTLE_RADIUS),
                 Renderable(color=color, shape='hexagon', layer=0),
                 Identity(faction=faction_id, type='castle'),
-                Stats(hp=CASTLE_HP, max_hp=CASTLE_HP, attack_dmg=CASTLE_DMG, attack_range=CASTLE_RANGE, attack_cd=CASTLE_CD),
+                Stats(hp=CASTLE_HP, max_hp=CASTLE_HP, attack_dmg=CASTLE_DMG, attack_range=CASTLE_RANGE, attack_cd=CASTLE_CD, hp_regen=CASTLE_HP_REGEN),
                 ResourceGenerator(rate=RES_GENERATION_RATE) # Castle generates base resources
             )
             
@@ -198,10 +198,11 @@ class SceneManager:
         elif type_name == 'resource_point':
             ent = self.world.create_entity(
                 Transform(x=x, y=y, radius=RES_POINT_RADIUS),
-                Renderable(color=COLOR_RESOURCE, shape='resource_grid', layer=0),  # Orange for neutral
+                Renderable(color=COLOR_RESOURCE, shape='resource_grid', layer=0),
                 Identity(faction=FACTION_NEUTRAL, type='resource'),
-                Stats(hp=RES_POINT_HP, max_hp=RES_POINT_HP, attack_dmg=RES_ATK_DMG, attack_range=RES_ATK_RANGE, attack_cd=RES_ATK_CD), # Hostile neutral
-                Selectable(selection_mask=SELECT_HOLD)  # All resources selectable
+                Stats(hp=RES_POINT_HP, max_hp=RES_POINT_HP, attack_dmg=RES_ATK_DMG, attack_range=RES_ATK_RANGE, attack_cd=RES_ATK_CD, hp_regen=RES_POINT_HP_REGEN),
+                Selectable(selection_mask=SELECT_HOLD),
+                ResourceGenerator(rate=RES_GENERATION_RATE)
             )
             return ent
 

@@ -11,10 +11,13 @@ class ResourceSystem(esper.Processor):
 
         # Generate Resources
         for ent, (gen, ident) in self.world.get_components(ResourceGenerator, Identity):
-            if ident.faction == FACTION_NEUTRAL:  # Generate for any non-neutral faction
-                continue
             multiplier = 1.0  # Could add upgrade logic here
             gen.accumulated += gen.rate * multiplier * dt
+            if gen.accumulated > gen.max_capacity:
+                gen.accumulated = gen.max_capacity
+
+            if ident.faction == FACTION_NEUTRAL: # no place to add for neutral
+                continue
             if gen.accumulated < 1.0:
                 continue
             amt = int(gen.accumulated)

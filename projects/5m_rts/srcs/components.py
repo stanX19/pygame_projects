@@ -4,6 +4,7 @@ Pure data classes, no logic.
 """
 import dataclasses
 from typing import Tuple, List
+from srcs.config import RESOURCE_GENERATOR_MAX_CAPACITY
 
 @dataclasses.dataclass
 class Transform:
@@ -30,11 +31,12 @@ class Identity:
 
 @dataclasses.dataclass
 class Stats:
-    hp: int
-    max_hp: int
+    hp: float
+    max_hp: float
     attack_dmg: int
     attack_range: float
     attack_cd: float
+    hp_regen: float = 0.0
     current_cd: float = 0.0
     dead: bool = False
 
@@ -56,6 +58,7 @@ class Selectable:
 class ResourceGenerator:
     rate: float
     accumulated: float = 0.0
+    max_capacity: float = RESOURCE_GENERATOR_MAX_CAPACITY
 
 @dataclasses.dataclass
 class ConstructionSite:
