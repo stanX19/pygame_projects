@@ -61,7 +61,7 @@ BOT_COLORS = [
 MATCH_DURATION = 300  # 5 minutes in seconds
 SUDDEN_DEATH_TIME = 180 # 3 minutes
 STARTING_UNITS = 10
-STARTING_RESOURCES = 50000
+STARTING_RESOURCES = 50
 
 # Unit Stats
 UNIT_RADIUS = 8
@@ -108,13 +108,13 @@ UNIT_HP_BONUS = 5      # +5 HP per level
 UNIT_DMG_BONUS = 2     # +2 damage per level
 UNIT_CD_BONUS = -0.1   # -0.1s cooldown per level (faster attacks)
 UNIT_SPEED_BONUS = 10  # +10 speed per level
-UNIT_RANGE_BONUS = TILE_SIZE / 2 * 100  # +32 range per level
+UNIT_RANGE_BONUS = TILE_SIZE / 2  # range per level
 
 # Castle Upgrades (per level bonuses)
 CASTLE_HP_BONUS = 200   # HP per level
-CASTLE_DMG_BONUS = 10    # damage per level
-CASTLE_CD_BONUS = -CASTLE_CD / 5 # cooldown per level
-CASTLE_RANGE_BONUS = TILE_SIZE * 2 # range per level
+CASTLE_DMG_BONUS = 0    # damage per level
+CASTLE_CD_BONUS = -CASTLE_CD / 10 # cooldown per level
+CASTLE_RANGE_BONUS = TILE_SIZE / 2 # range per level
 CASTLE_HP_REGEN_BONUS = 2 # regen per level
 
 # HP Regeneration (HP per second)
