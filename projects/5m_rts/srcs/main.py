@@ -93,6 +93,7 @@ class SceneManager:
             'castle_hp': 0,
             'castle_dmg': 0,
             'castle_cd': 0,
+            'castle_range': 0,
             'resource_rate': 0,
             'castle_move': 0
         }
@@ -144,12 +145,15 @@ class SceneManager:
             upgrades.hp_level = self.faction_upgrades[faction_id]['castle_hp']
             upgrades.dmg_level = self.faction_upgrades[faction_id]['castle_dmg']
             upgrades.cd_level = self.faction_upgrades[faction_id]['castle_cd']
+            upgrades.range_level = self.faction_upgrades[faction_id].get('castle_range', 0)
             
             stats = self.world.component_for_entity(ent, Stats)
             stats.max_hp = CASTLE_HP + (CASTLE_HP_BONUS * upgrades.hp_level)
             stats.hp = stats.max_hp
+            stats.hp_regen = CASTLE_HP_REGEN + (CASTLE_HP_REGEN_BONUS * upgrades.hp_level)
             stats.attack_dmg = CASTLE_DMG + (CASTLE_DMG_BONUS * upgrades.dmg_level)
             stats.attack_cd = max(0.1, CASTLE_CD + (CASTLE_CD_BONUS * upgrades.cd_level))
+            stats.attack_range = CASTLE_RANGE + (CASTLE_RANGE_BONUS * upgrades.range_level)
             
         elif entity_type == 'resource':
             upgrades.rate_level = self.faction_upgrades[faction_id]['resource_rate']

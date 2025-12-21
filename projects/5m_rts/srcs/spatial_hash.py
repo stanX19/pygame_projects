@@ -53,3 +53,66 @@ class SpatialHash:
                 if key in self.grid:
                     nearby.extend(self.grid[key])
         return nearby
+
+    def query_range(self, x, y, radius):
+        """Returns entities in all cells that intersect with the given radius."""
+        nearby = []
+        
+        # Calculate grid bounds for the radius
+        min_cx = int((x - radius) // self.cell_size)
+        max_cx = int((x + radius) // self.cell_size)
+        min_cy = int((y - radius) // self.cell_size)
+        max_cy = int((y + radius) // self.cell_size)
+        
+        for cx in range(min_cx, max_cx + 1):
+            for cy in range(min_cy, max_cy + 1):
+                key = (cx, cy)
+                if key in self.grid:
+                    nearby.extend(self.grid[key])
+                    
+        return nearby
+
+    def query_first_n(self, x, y, radius, n=1, ignore_entity=None):
+        """
+        Returns the first n entities in the range of the given radius.
+        Optimized for single target entity lookup.
+        
+        Args:
+            x, y: Center position
+            radius: Search radius (used to determine grid cell range)
+            n: Number of entities to return
+            ignore_entity: List of entity IDs to exclude from results
+            
+        Note: This returns entity IDs from grid cells within range.
+        Caller must verify actual distance using Transform components.
+        """
+        cx, cy = self._get_key(x, y)
+        # Use Manhattan distance approximation (radius * 1.414) for better circular coverage
+        max_dist = int(radius * 1.414 / self.cell_size) + 1
+
+        entities = []
+        # Check center first
+        if (cx, cy) in self.grid:
+            for entity_id in self.grid[(cx, cy)]:
+                if ignore_entity and entity_id in ignore_entity:
+                    continue
+                entities.append(entity_id)
+                if len(entities) >= n:
+                    return entities
+
+        # Expanding diamond pattern (Manhattan distance rings)
+        for d in range(1, max_dist + 1):
+            for dx in range(-d, d + 1):
+                dy_abs = d - abs(dx)
+                dys = [dy_abs] if dy_abs == 0 else [dy_abs, -dy_abs]
+                
+                for dy in dys:
+                    key = (cx + dx, cy + dy)
+                    if key in self.grid:
+                        for entity_id in self.grid[key]:
+                            if ignore_entity and entity_id in ignore_entity:
+                                continue
+                            entities.append(entity_id)
+                            if len(entities) >= n:
+                                return entities
+        return entities

@@ -109,7 +109,7 @@ class UpgradeSystem(esper.Processor):
         for ent, (ident, stats, upgrades, trans) in self.world.get_components(Identity, Stats, Upgrades, Transform):
             if ident.faction == faction_id and ident.type == 'unit':
                 upgrades.cd_level = level
-                stats.attack_cd = max(0.1, UNIT_CD + (UNIT_CD_BONUS * level))
+                stats.attack_cd = UNIT_CD + (UNIT_CD_BONUS * level)
                 # Update visual shape
                 self.update_unit_visual(ent, upgrades, trans)
         
@@ -171,40 +171,54 @@ class UpgradeSystem(esper.Processor):
                 hp_ratio = stats.hp / stats.max_hp
                 stats.max_hp = new_max_hp
                 stats.hp = int(new_max_hp * hp_ratio)
+                # Update HP Regen with new bonus logic
+                stats.hp_regen = CASTLE_HP_REGEN + (CASTLE_HP_REGEN_BONUS * level)
         
         return True
     
-    def upgrade_castle_dmg(self, faction_id):
-        """Upgrade damage for all castles of a faction"""
+    def upgrade_castle_atk(self, faction_id):
+        """Upgrade Attack (Dmg + CD) for all castles of a faction"""
+        # Costs are based on the DMG level (assuming they are synced)
         cost = self.get_upgrade_cost(self.sm.faction_upgrades[faction_id]['castle_dmg'])
         if self.sm.resources.get(faction_id, 0) < cost:
             return False
         
         self.sm.resources[faction_id] -= cost
+        
+        # Upgrade both DMG and CD levels
         self.sm.faction_upgrades[faction_id]['castle_dmg'] += 1
+        self.sm.faction_upgrades[faction_id]['castle_cd'] += 1
+        
         level = self.sm.faction_upgrades[faction_id]['castle_dmg']
         
         for ent, (ident, stats, upgrades) in self.world.get_components(Identity, Stats, Upgrades):
             if ident.faction == faction_id and ident.type == 'castle':
                 upgrades.dmg_level = level
+                upgrades.cd_level = level
+                
                 stats.attack_dmg = CASTLE_DMG + (CASTLE_DMG_BONUS * level)
+                stats.attack_cd = CASTLE_CD + (CASTLE_CD_BONUS * level)
         
         return True
-    
-    def upgrade_castle_cd(self, faction_id):
-        """Upgrade attack cooldown (reduce) for all castles of a faction"""
-        cost = self.get_upgrade_cost(self.sm.faction_upgrades[faction_id]['castle_cd'])
+
+    def upgrade_castle_range(self, faction_id):
+        """Upgrade attack range for all castles of a faction"""
+        # Initialize if not present (handled in init, but safety check)
+        if 'castle_range' not in self.sm.faction_upgrades[faction_id]:
+             self.sm.faction_upgrades[faction_id]['castle_range'] = 0
+
+        cost = self.get_upgrade_cost(self.sm.faction_upgrades[faction_id]['castle_range'])
         if self.sm.resources.get(faction_id, 0) < cost:
             return False
         
         self.sm.resources[faction_id] -= cost
-        self.sm.faction_upgrades[faction_id]['castle_cd'] += 1
-        level = self.sm.faction_upgrades[faction_id]['castle_cd']
+        self.sm.faction_upgrades[faction_id]['castle_range'] += 1
+        level = self.sm.faction_upgrades[faction_id]['castle_range']
         
         for ent, (ident, stats, upgrades) in self.world.get_components(Identity, Stats, Upgrades):
             if ident.faction == faction_id and ident.type == 'castle':
-                upgrades.cd_level = level
-                stats.attack_cd = max(0.1, CASTLE_CD + (CASTLE_CD_BONUS * level))
+                upgrades.range_level = level
+                stats.attack_range = CASTLE_RANGE + (CASTLE_RANGE_BONUS * level)
         
         return True
     
@@ -271,8 +285,8 @@ class UpgradeSystem(esper.Processor):
                     return panel_title, [
                         autopilot_btn,
                         ('Castle HP', 'castle_hp', 'upgrade_castle_hp', (100, 150, 255)),
-                        ('Castle Dmg', 'castle_dmg', 'upgrade_castle_dmg', (255, 100, 100)),
-                        ('Castle CD', 'castle_cd', 'upgrade_castle_cd', (150, 255, 150)),
+                        ('Castle Atk', 'castle_dmg', 'upgrade_castle_atk', (255, 100, 100)),
+                        ('Castle Range', 'castle_range', 'upgrade_castle_range', (255, 150, 255)),
                     ]
                 else:
                     return "Enemy Castle", []
